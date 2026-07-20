@@ -4,23 +4,23 @@
 
 # XRForge
 
-XRForge is an open-source VR hardware compatibility project focused on bringing
-VR headsets and controllers to Linux through open standards such as OpenXR and
-Monado, with future cross-platform potential.
+XRForge is an open-source XR hardware compatibility project focused on bringing
+VR, AR, and MR headsets and controllers to Linux through open standards such as
+OpenXR and Monado, with future cross-platform potential.
 
-The current development target is Windows Mixed Reality compatible hardware,
-including the HP Reverb headset and WMR motion controllers. The headset is the
-first validated device, not the limit of the project.
+The current development target is Windows Mixed Reality compatible XR hardware.
+The HP Reverb and WMR motion controllers are the first validated devices, not
+the limit of the project.
 
 ## Install / Run
 
-To install and prepare the current HP Reverb/WMR SteamVR workflow, run:
+To install and run the current WMR-compatible XR device SteamVR workflow, run:
 
 ```bash
 ./runonce.sh
 ```
 
-The script will:
+That is the normal path. The script will:
 
 - verify required command-line tools are available
 - build the local Monado SteamVR target with `ninja`
@@ -28,29 +28,17 @@ The script will:
 - confirm the SteamVR Monado driver exists
 - export `XR_RUNTIME_JSON` for OpenXR clients launched from that shell
 - print the local SteamVR driver path
-- check whether HP Reverb/WMR USB devices are visible
-- check the configured WMR controller Bluetooth pairing/connection state
+- check whether WMR-compatible XR USB devices are visible
+- check the configured controller Bluetooth pairing/connection state
 - show active Bluetooth controller links when `hcitool` is available
-- explain whether SteamVR driver registration is still needed
-- explain how to launch SteamVR through this helper
+- register the local Monado SteamVR driver with SteamVR
+- launch SteamVR
 - report the expected Monado process model
-
-For a first-time SteamVR driver registration, run:
-
-```bash
-./runonce.sh --register-steamvr
-```
-
-To run the checks and launch SteamVR:
-
-```bash
-./runonce.sh --launch-steamvr
-```
 
 The working stack is:
 
 ```text
-HP Reverb / WMR controllers
+WMR-compatible XR headset/controllers
         |
 Monado SteamVR driver
         |
@@ -59,27 +47,18 @@ SteamVR
 VR applications
 ```
 
-Useful options:
-
-```bash
-./runonce.sh --register-steamvr
-./runonce.sh --launch-steamvr
-./runonce.sh --skip-build
-./runonce.sh --no-bluetooth
-```
-
 For this SteamVR driver workflow, Monado is normally loaded through
 `driver_monado.so` inside SteamVR, typically under `vrserver`. A separate
 long-running `monado-service` process is not expected.
 
-The full manual HP Reverb Linux bring-up process is documented in
+The full manual setup process for the first validated device is documented in
 `XRForge_HP_Reverb_Linux_Setup_Guide.md`.
 
 ## Current Status
 
 The project foundation is working:
 
-- VR headset display
+- XR headset display
 - USB device communication
 - Head tracking
 - SteamVR startup
@@ -114,9 +93,9 @@ tracking fusion, button mappings, or trigger input.
 ## Repository Layout
 
 - `monado-source/` - Monado source tree used for XR runtime development.
-- `runonce.sh` - one-shot HP Reverb/WMR SteamVR session helper.
-- `XRForge_HP_Reverb_Linux_Setup_Guide.md` - documented manual HP Reverb Linux
-  setup process.
+- `runonce.sh` - one-shot WMR-compatible XR SteamVR session helper.
+- `XRForge_HP_Reverb_Linux_Setup_Guide.md` - documented manual setup process
+  for the first validated WMR-compatible XR device.
 - `XRForge_Monado_Handoff.md` - technical handoff and current investigation notes.
 - `TODO.md` - project checklist and near-term work items.
 - `assets/images/` - XRForge project image assets.
@@ -126,6 +105,26 @@ tracking fusion, button mappings, or trigger input.
 XRForge builds on Monado, an open-source XR runtime and OpenXR implementation.
 See `monado-source/README.md` and `monado-source/CONTRIBUTING.md` for upstream
 build, contribution, and licensing guidance.
+
+## Optional Controls
+
+These options are for debugging, automation, or LLM-assisted workflows. Most
+users should just run `./runonce.sh`.
+
+```bash
+./runonce.sh --check-only
+./runonce.sh --skip-build
+./runonce.sh --no-register-steamvr
+./runonce.sh --no-launch-steamvr
+./runonce.sh --no-bluetooth
+```
+
+The explicit positive forms are also accepted for scripted use:
+
+```bash
+./runonce.sh --register-steamvr
+./runonce.sh --launch-steamvr
+```
 
 <p align="center">
   <img src="assets/images/XRForge.png" alt="XRForge" width="160">

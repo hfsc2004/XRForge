@@ -12,30 +12,33 @@ LEFT_CONTROLLER_MAC="${XRFORGE_LEFT_CONTROLLER_MAC:-D8:C4:97:C9:12:38}"
 RIGHT_CONTROLLER_MAC="${XRFORGE_RIGHT_CONTROLLER_MAC:-D8:C4:97:C9:18:94}"
 
 SKIP_BUILD=0
-REGISTER_STEAMVR=0
-LAUNCH_STEAMVR=0
+REGISTER_STEAMVR=1
+LAUNCH_STEAMVR=1
 CHECK_BLUETOOTH=1
 
 usage() {
   cat <<EOF
-XRForge HP Reverb one-shot Linux session helper
+XRForge WMR-compatible XR one-shot Linux session helper
 
 Usage:
   ./runonce.sh [options]
 
 Options:
-  --skip-build         Do not run ninja before startup checks.
-  --register-steamvr  Register the local Monado SteamVR driver with vrpathreg.
-  --launch-steamvr    Launch SteamVR through Steam after checks.
-  --no-bluetooth      Skip Bluetooth controller status checks.
-  -h, --help          Show this help.
+  --check-only             Run checks, but do not register SteamVR or launch it.
+  --skip-build             Do not run ninja before startup checks.
+  --no-register-steamvr    Do not register the local Monado SteamVR driver.
+  --no-launch-steamvr      Do not launch SteamVR after checks.
+  --no-bluetooth           Skip Bluetooth controller status checks.
+  --register-steamvr       Explicitly enable SteamVR driver registration.
+  --launch-steamvr         Explicitly enable SteamVR launch.
+  -h, --help               Show this help.
 
 Environment:
   XRFORGE_LEFT_CONTROLLER_MAC   Defaults to ${LEFT_CONTROLLER_MAC}
   XRFORGE_RIGHT_CONTROLLER_MAC  Defaults to ${RIGHT_CONTROLLER_MAC}
 
-This script prepares the local Monado build used by XRForge for one SteamVR
-session and reports the hardware state needed for the HP Reverb/WMR setup. It
+By default this script prepares the local Monado build, registers the SteamVR
+driver, checks the WMR-compatible XR hardware state, and launches SteamVR. It
 does not pair Bluetooth devices automatically; use bluetoothctl for first-time
 pairing/trust.
 EOF
@@ -63,11 +66,21 @@ while [[ $# -gt 0 ]]; do
     --skip-build)
       SKIP_BUILD=1
       ;;
+    --check-only)
+      REGISTER_STEAMVR=0
+      LAUNCH_STEAMVR=0
+      ;;
     --register-steamvr)
       REGISTER_STEAMVR=1
       ;;
     --launch-steamvr)
       LAUNCH_STEAMVR=1
+      ;;
+    --no-register-steamvr)
+      REGISTER_STEAMVR=0
+      ;;
+    --no-launch-steamvr)
+      LAUNCH_STEAMVR=0
       ;;
     --no-bluetooth)
       CHECK_BLUETOOTH=0
@@ -112,19 +125,19 @@ log "Runtime paths"
 printf 'XR_RUNTIME_JSON=%s\n' "${XR_RUNTIME_JSON}"
 printf 'SteamVR driver=%s\n' "${STEAMVR_DRIVER_DIR}"
 
-log "HP Reverb USB check"
+log "WMR-compatible XR USB check"
 if have lsusb; then
   if lsusb | grep -iE 'Quanta|QHMD|HoloLens|Mixed Reality|HP' >/dev/null; then
     lsusb | grep -iE 'Quanta|QHMD|HoloLens|Mixed Reality|HP'
   else
-    warn "HP Reverb/WMR USB devices were not obvious in lsusb output"
+    warn "WMR-compatible XR USB devices were not obvious in lsusb output"
   fi
 else
   warn "lsusb unavailable; skipping USB detection"
 fi
 
 if [[ "${CHECK_BLUETOOTH}" -eq 1 ]]; then
-  log "WMR controller Bluetooth check"
+  log "Controller Bluetooth check"
   if have bluetoothctl; then
     for mac in "${LEFT_CONTROLLER_MAC}" "${RIGHT_CONTROLLER_MAC}"; do
       printf '\nController %s\n' "${mac}"
@@ -161,8 +174,8 @@ if [[ "${REGISTER_STEAMVR}" -eq 1 ]]; then
   "${VRPATHREG}" adddriver "${STEAMVR_DRIVER_DIR}"
 else
   log "SteamVR driver registration"
-  printf 'To register the local driver, run:\n'
-  printf '  %q --register-steamvr\n' "${ROOT_DIR}/runonce.sh"
+  printf 'Skipped by option. To register the local driver later, run:\n'
+  printf '  %q --register-steamvr --no-launch-steamvr\n' "${ROOT_DIR}/runonce.sh"
 fi
 
 if [[ "${LAUNCH_STEAMVR}" -eq 1 ]]; then
@@ -174,8 +187,8 @@ if [[ "${LAUNCH_STEAMVR}" -eq 1 ]]; then
   fi
 else
   log "Launch"
-  printf 'To launch SteamVR after checks, run:\n'
-  printf '  %q --launch-steamvr\n' "${ROOT_DIR}/runonce.sh"
+  printf 'Skipped by option. To launch SteamVR after checks, run:\n'
+  printf '  %q --launch-steamvr --no-register-steamvr\n' "${ROOT_DIR}/runonce.sh"
 fi
 
 log "Monado process model"
