@@ -12,11 +12,42 @@ The current development target is Windows Mixed Reality compatible hardware,
 including the HP Reverb headset and WMR motion controllers. The headset is the
 first validated device, not the limit of the project.
 
-## Current Workflow
+## Install / Run
 
-The manual HP Reverb Linux bring-up process is documented in
-`XRForge_HP_Reverb_Linux_Setup_Guide.md`. The working flow uses a local Monado
-build as a SteamVR driver:
+To install and prepare the current HP Reverb/WMR SteamVR workflow, run:
+
+```bash
+./runonce.sh
+```
+
+The script will:
+
+- verify required command-line tools are available
+- build the local Monado SteamVR target with `ninja`
+- confirm the local OpenXR runtime manifest exists
+- confirm the SteamVR Monado driver exists
+- export `XR_RUNTIME_JSON` for OpenXR clients launched from that shell
+- print the local SteamVR driver path
+- check whether HP Reverb/WMR USB devices are visible
+- check the configured WMR controller Bluetooth pairing/connection state
+- show active Bluetooth controller links when `hcitool` is available
+- explain whether SteamVR driver registration is still needed
+- explain how to launch SteamVR through this helper
+- report the expected Monado process model
+
+For a first-time SteamVR driver registration, run:
+
+```bash
+./runonce.sh --register-steamvr
+```
+
+To run the checks and launch SteamVR:
+
+```bash
+./runonce.sh --launch-steamvr
+```
+
+The working stack is:
 
 ```text
 HP Reverb / WMR controllers
@@ -28,12 +59,6 @@ SteamVR
 VR applications
 ```
 
-For the current one-shot session helper, run:
-
-```bash
-./runonce.sh
-```
-
 Useful options:
 
 ```bash
@@ -43,14 +68,12 @@ Useful options:
 ./runonce.sh --no-bluetooth
 ```
 
-`runonce.sh` builds/checks the local Monado SteamVR target, reports the local
-OpenXR runtime manifest, verifies obvious HP Reverb USB visibility, checks WMR
-controller Bluetooth state, and can optionally register the local SteamVR driver
-or launch SteamVR.
-
 For this SteamVR driver workflow, Monado is normally loaded through
 `driver_monado.so` inside SteamVR, typically under `vrserver`. A separate
 long-running `monado-service` process is not expected.
+
+The full manual HP Reverb Linux bring-up process is documented in
+`XRForge_HP_Reverb_Linux_Setup_Guide.md`.
 
 ## Current Status
 
