@@ -434,6 +434,21 @@ WMR_CONTROLLER_ZERO_COMMAND=false \
 WMR_CONTROLLER_TASK_RESTART=false ./start.sh
 ```
 
+SteamVR chaperone/play-area defaults:
+
+``` bash
+XRFORGE_STEAMVR_CHAPERONE=true
+XRFORGE_STEAMVR_PLAY_AREA=3.0
+XRFORGE_STEAMVR_STANDING_HEIGHT=0.0
+```
+
+XRForge writes a centered SteamVR chaperone before launch and backs up the first
+existing file to
+`~/.local/share/Steam/config/chaperone_info.vrchap.xrforge-backup`. This avoids
+room-scale apps getting stuck on an old or tiny play-area center while Monado's
+WMR tracking origin is still experimental. Set `XRFORGE_STEAMVR_CHAPERONE=false`
+to leave SteamVR's room setup untouched.
+
 Optical controller pose sample quality gates:
 
 ``` bash

@@ -10,6 +10,7 @@ STEAMVR_DRIVER_DIR="${BUILD_DIR}/steamvr-monado"
 STEAMVR_DRIVER_SO="${STEAMVR_DRIVER_DIR}/bin/linux64/driver_monado.so"
 STEAMVR_DIR="${HOME}/.local/share/Steam/steamapps/common/SteamVR"
 STEAMVR_CONFIG_DIR="${HOME}/.local/share/Steam/config"
+STEAMVR_CHAPERONE_FILE="${STEAMVR_CONFIG_DIR}/chaperone_info.vrchap"
 
 LEFT_CONTROLLER_MAC="${XRFORGE_LEFT_CONTROLLER_MAC:-D8:C4:97:C9:12:38}"
 RIGHT_CONTROLLER_MAC="${XRFORGE_RIGHT_CONTROLLER_MAC:-D8:C4:97:C9:18:94}"
@@ -46,6 +47,9 @@ CONNECT_BLUETOOTH=1
 SET_X11_NON_DESKTOP=1
 WMR_3DOF_ONLY=0
 X11_NON_DESKTOP_WATCH_SECONDS="${XRFORGE_X11_NON_DESKTOP_WATCH_SECONDS:-30}"
+XRFORGE_STEAMVR_CHAPERONE="${XRFORGE_STEAMVR_CHAPERONE:-true}"
+XRFORGE_STEAMVR_PLAY_AREA="${XRFORGE_STEAMVR_PLAY_AREA:-3.0}"
+XRFORGE_STEAMVR_STANDING_HEIGHT="${XRFORGE_STEAMVR_STANDING_HEIGHT:-0.0}"
 
 usage() {
   cat <<EOF
@@ -75,6 +79,12 @@ Environment:
                                 Defaults to ${X11_HEADSET_OUTPUT_CACHE}
   XRFORGE_X11_NON_DESKTOP_WATCH_SECONDS
                                 Seconds to watch for WMR display hotplug during launch.
+  XRFORGE_STEAMVR_CHAPERONE
+                                Write a centered SteamVR chaperone before launch;
+                                default true.
+  XRFORGE_STEAMVR_PLAY_AREA     Centered play-area size in meters; default 3.0.
+  XRFORGE_STEAMVR_STANDING_HEIGHT
+                                Standing transform Y translation; default 0.0.
   WMR_CONTROLLER_FALLBACK_X/Y/Z Simulated controller offset from HMD position.
   WMR_CONTROLLER_FALLBACK_FOLLOW_HMD
                                 Keep fallback controllers attached to HMD position.
@@ -264,6 +274,78 @@ prepare_steamvr_launch_environment() {
   if [[ -d "${steamvr_bin}" && -d "${steamvr_qt}" ]]; then
     export LD_LIBRARY_PATH="${steamvr_bin}:${steamvr_qt}:${LD_LIBRARY_PATH:-}"
   fi
+}
+
+write_steamvr_chaperone() {
+  [[ "${XRFORGE_STEAMVR_CHAPERONE}" == "true" ]] || {
+    log "SteamVR chaperone"
+    printf 'Skipped by XRFORGE_STEAMVR_CHAPERONE=%s.\n' "${XRFORGE_STEAMVR_CHAPERONE}"
+    return 0
+  }
+
+  mkdir -p "${STEAMVR_CONFIG_DIR}"
+
+  local area="${XRFORGE_STEAMVR_PLAY_AREA}"
+  local half
+  half="$(awk -v area="${area}" 'BEGIN { printf "%.6f", area / 2.0 }')"
+  local height="${XRFORGE_STEAMVR_STANDING_HEIGHT}"
+  local now
+  now="$(date '+%a %b %d %H:%M:%S %Y')"
+
+  if [[ -f "${STEAMVR_CHAPERONE_FILE}" && ! -f "${STEAMVR_CHAPERONE_FILE}.xrforge-backup" ]]; then
+    cp "${STEAMVR_CHAPERONE_FILE}" "${STEAMVR_CHAPERONE_FILE}.xrforge-backup"
+  fi
+
+  log "SteamVR chaperone"
+  printf 'Writing centered %.1fm x %.1fm play area to %s\n' "${area}" "${area}" "${STEAMVR_CHAPERONE_FILE}"
+
+  cat >"${STEAMVR_CHAPERONE_FILE}" <<EOF
+{
+   "jsonid" : "chaperone_info",
+   "universes" : [
+      {
+         "collision_bounds" : [
+            [
+               [ -${half}, 0, -${half} ],
+               [ -${half}, 2.43000007, -${half} ],
+               [ -${half}, 2.43000007, ${half} ],
+               [ -${half}, 0, ${half} ]
+            ],
+            [
+               [ -${half}, 0, ${half} ],
+               [ -${half}, 2.43000007, ${half} ],
+               [ ${half}, 2.43000007, ${half} ],
+               [ ${half}, 0, ${half} ]
+            ],
+            [
+               [ ${half}, 0, ${half} ],
+               [ ${half}, 2.43000007, ${half} ],
+               [ ${half}, 2.43000007, -${half} ],
+               [ ${half}, 0, -${half} ]
+            ],
+            [
+               [ ${half}, 0, -${half} ],
+               [ ${half}, 2.43000007, -${half} ],
+               [ -${half}, 2.43000007, -${half} ],
+               [ -${half}, 0, -${half} ]
+            ]
+         ],
+         "play_area" : [ ${area}, ${area} ],
+         "setup_standing2" : {
+            "translation" : [ 0, ${height}, 0 ],
+            "yaw" : 0
+         },
+         "standing" : {
+            "translation" : [ 0, ${height}, 0 ],
+            "yaw" : 0
+         },
+         "time" : "${now}",
+         "universeID" : "2"
+      }
+   ],
+   "version" : 5
+}
+EOF
 }
 
 x11_output_exists() {
@@ -542,7 +624,7 @@ ensure_not_root
 mkdir -p "${BUILD_DIR}"
 
 log "Checking required tools"
-for tool in lsusb grep sed readelf; do
+for tool in lsusb grep sed readelf awk; do
   if have "${tool}"; then
     printf 'ok: %s\n' "${tool}"
   else
@@ -641,6 +723,7 @@ fi
 
 check_display_session
 set_x11_headset_non_desktop
+write_steamvr_chaperone
 
 if [[ "${WMR_3DOF_ONLY}" -eq 1 ]]; then
   log "WMR tracking mode"

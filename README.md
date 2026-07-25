@@ -227,6 +227,21 @@ WMR_CONTROLLER_ZERO_COMMAND=false \
 WMR_CONTROLLER_TASK_RESTART=false ./start.sh
 ```
 
+XRForge writes a centered SteamVR chaperone before launch so room-scale apps do
+not inherit an old or tiny play area from a previous SteamVR Room Setup run. The
+default is a `3.0m x 3.0m` standing play area centered on the Monado tracking
+origin:
+
+```bash
+XRFORGE_STEAMVR_CHAPERONE=true
+XRFORGE_STEAMVR_PLAY_AREA=3.0
+XRFORGE_STEAMVR_STANDING_HEIGHT=0.0
+```
+
+The first existing SteamVR chaperone file is backed up as
+`~/.local/share/Steam/config/chaperone_info.vrchap.xrforge-backup`. Set
+`XRFORGE_STEAMVR_CHAPERONE=false` to leave SteamVR's room setup untouched.
+
 Optical pose samples are quality-gated before they replace fallback position:
 
 ```bash
