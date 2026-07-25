@@ -407,10 +407,18 @@ WMR_CONTROLLER_FALLBACK_X=0.14
 WMR_CONTROLLER_FALLBACK_Y=-0.28
 WMR_CONTROLLER_FALLBACK_Z=-0.10
 WMR_CONTROLLER_AIM_YAW_DEGREES=65
+STEAMVR_EMULATE_INDEX_CONTROLLER=true
 ```
 
 Lower `WMR_CONTROLLER_AIM_YAW_DEGREES` values rotate the fallback laser
-clockwise/right. Higher values rotate it counterclockwise/left.
+clockwise/right. Higher values rotate it counterclockwise/left. Use
+`WMR_CONTROLLER_AIM_YAW_DEGREES_LEFT` or
+`WMR_CONTROLLER_AIM_YAW_DEGREES_RIGHT` when only one controller needs aim
+correction.
+
+XRForge defaults `STEAMVR_EMULATE_INDEX_CONTROLLER=true` so SteamVR uses known
+Index controller render models and legacy bindings instead of a generic
+locator-style visualization.
 
 Optical LED blob detection defaults:
 
