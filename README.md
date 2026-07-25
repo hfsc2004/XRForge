@@ -14,6 +14,35 @@ The current development target is Windows Mixed Reality compatible XR hardware.
 The HP Reverb and WMR motion controllers are the first validated devices, not
 the limit of the project.
 
+## Why XRForge Exists
+
+Monado is the upstream XR runtime. XRForge is not trying to replace Monado.
+XRForge exists because getting WMR-compatible hardware working through Monado,
+SteamVR, Linux display handling, Bluetooth controllers, and room setup currently
+requires a lot of glue that a normal user should not have to rediscover.
+
+Compared with downloading Monado directly, XRForge provides a repeatable
+WMR-focused workflow that:
+
+- builds the Monado SteamVR target with the required options
+- registers the local Monado SteamVR driver with SteamVR
+- clears SteamVR safe-mode blocks for the Monado driver
+- keeps the headset from being treated as a normal X11 desktop monitor
+- checks that WMR-compatible USB devices are visible
+- checks and reconnects paired WMR Bluetooth controllers
+- creates a usable SteamVR chaperone/play-area file
+- preserves the existing SteamVR standing transform so the user is not placed
+  in the floor
+- applies XRForge's experimental WMR controller tracking patches automatically
+- exposes practical tuning variables for controller fallback position, aim yaw,
+  optical LED blob detection, optical pose filtering, and camera frame dumps
+- documents the HP Reverb Linux setup and current debugging path in one place
+
+In short: Monado is the runtime; XRForge is the WMR-on-Linux startup,
+integration, patching, and debugging workflow around it. The controller tracking
+work is still experimental, but the project aims to make each hard-won setup fix
+repeatable for the next user.
+
 ## Install / Run
 
 ### First Clone
