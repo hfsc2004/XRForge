@@ -24,6 +24,9 @@ To install and run the current WMR-compatible XR device SteamVR workflow, run:
 
 Run it as your normal desktop user, not with `sudo`. SteamVR driver
 registration and SteamVR settings are user-account configuration.
+The `start.sh` entrypoint is intentionally small; support logic lives in
+`scripts/xrforge-*.sh` modules for build setup, Bluetooth, chaperone, X11 direct
+mode, and shared environment handling.
 
 That is the normal path. The script will:
 
@@ -186,6 +189,7 @@ Default fallback offset:
 WMR_CONTROLLER_FALLBACK_X=0.14
 WMR_CONTROLLER_FALLBACK_Y=-0.28
 WMR_CONTROLLER_FALLBACK_Z=-0.10
+STEAMVR_EMULATE_INDEX_CONTROLLER=true
 ```
 
 If controllers appear too high, low, near, or far in SteamVR, tune the fallback
@@ -202,7 +206,12 @@ WMR_CONTROLLER_AIM_YAW_DEGREES=65 ./start.sh
 ```
 
 Lower values rotate the fallback laser clockwise/right. Higher values rotate it
-counterclockwise/left.
+counterclockwise/left. Use `WMR_CONTROLLER_AIM_YAW_DEGREES_LEFT` or
+`WMR_CONTROLLER_AIM_YAW_DEGREES_RIGHT` when only one hand is off.
+
+XRForge defaults `STEAMVR_EMULATE_INDEX_CONTROLLER=true` so SteamVR gets known
+Index controller render models and legacy bindings instead of falling back to a
+generic locator-style controller visualization.
 
 Optical controller LED detection can be tuned with:
 
