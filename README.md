@@ -219,10 +219,11 @@ WMR_CONTROLLER_MAX_BRIGHT_PIXELS=0 \
 ```
 
 If a controller LED ring turns off when the driver initializes, test startup
-without the controller task-restart command. XRForge now defaults this off for
-HP Reverb controller testing:
+without controller reinit commands. XRForge now defaults both off for HP Reverb
+controller testing:
 
 ```bash
+WMR_CONTROLLER_ZERO_COMMAND=false \
 WMR_CONTROLLER_TASK_RESTART=false ./start.sh
 ```
 
