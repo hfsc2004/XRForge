@@ -16,6 +16,29 @@ the limit of the project.
 
 ## Install / Run
 
+### First Clone
+
+XRForge uses Monado as a Git submodule. On GitHub, this looks like a folder
+named `monado-source @ <commit>`. That is normal. It is not a broken folder; it
+means XRForge depends on a specific Monado version.
+
+For a new clone, use:
+
+```bash
+git clone --recurse-submodules https://github.com/hfsc2004/XRForge.git
+cd XRForge
+```
+
+If you already cloned XRForge and `monado-source` is empty or missing files, run:
+
+```bash
+git submodule update --init --recursive
+```
+
+You do not need to manually patch Monado. XRForge keeps its local Monado changes
+in `patches/monado/`, and `./start.sh` applies them automatically before it
+builds.
+
 To install and run the current WMR-compatible XR device SteamVR workflow, run:
 
 ```bash
