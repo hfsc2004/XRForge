@@ -1,0 +1,170 @@
+diff --git a/src/xrt/drivers/wmr/wmr_controller_base.c b/src/xrt/drivers/wmr/wmr_controller_base.c
+index a2ce7dc88..c15b324fc 100644
+--- a/src/xrt/drivers/wmr/wmr_controller_base.c
++++ b/src/xrt/drivers/wmr/wmr_controller_base.c
+@@ -457,15 +457,26 @@ wmr_controller_base_get_tracked_pose(struct xrt_device *xdev,
+ 	int64_t last_imu_timestamp_ns = 0;
+ 	struct xrt_space_relation relation = {0};
+ 	relation.relation_flags = (enum xrt_space_relation_flags)(
+-	    XRT_SPACE_RELATION_ORIENTATION_VALID_BIT | XRT_SPACE_RELATION_ORIENTATION_TRACKED_BIT |
++	    XRT_SPACE_RELATION_ORIENTATION_VALID_BIT | XRT_SPACE_RELATION_POSITION_VALID_BIT |
++	    XRT_SPACE_RELATION_ORIENTATION_TRACKED_BIT | XRT_SPACE_RELATION_POSITION_TRACKED_BIT |
+ 	    XRT_SPACE_RELATION_ANGULAR_VELOCITY_VALID_BIT | XRT_SPACE_RELATION_LINEAR_VELOCITY_VALID_BIT);
+ 
+ 
+-	struct xrt_pose pose = {{0, 0, 0, 1}, {0, 1.2, -0.5}};
++	struct xrt_pose pose = {
++	    {0, 0, 0, 1},
++	    {0, debug_get_float_option_wmr_controller_fallback_y(), debug_get_float_option_wmr_controller_fallback_z()}};
+ 	if (xdev->device_type == XRT_DEVICE_TYPE_LEFT_HAND_CONTROLLER) {
+-		pose.position.x = -0.2;
++		pose.position.x = -debug_get_float_option_wmr_controller_fallback_x();
+ 	} else {
+-		pose.position.x = 0.2;
++		pose.position.x = debug_get_float_option_wmr_controller_fallback_x();
++	}
++	if (debug_get_bool_option_wmr_controller_fallback_follow_hmd()) {
++		struct xrt_vec3 hmd_position = XRT_VEC3_ZERO;
++		if (wmr_fallback_get_hmd_position(&hmd_position)) {
++			pose.position.x += hmd_position.x;
++			pose.position.y += hmd_position.y;
++			pose.position.z += hmd_position.z;
++		}
+ 	}
+ 	relation.pose = pose;
+ 
+@@ -487,9 +498,62 @@ wmr_controller_base_get_tracked_pose(struct xrt_device *xdev,
+ 
+ 	m_predict_relation(&relation, prediction_s, out_relation);
+ 
++	struct xrt_space_relation optical_relation = {0};
++	if (wcb->constellation_relation_history != NULL &&
++	    m_relation_history_get(wcb->constellation_relation_history, at_timestamp_ns, &optical_relation) !=
++	        M_RELATION_HISTORY_RESULT_INVALID &&
++	    (optical_relation.relation_flags & XRT_SPACE_RELATION_POSITION_VALID_BIT) != 0) {
++		out_relation->pose.position = optical_relation.pose.position;
++		out_relation->relation_flags = (enum xrt_space_relation_flags)(
++		    out_relation->relation_flags | XRT_SPACE_RELATION_POSITION_VALID_BIT |
++		    XRT_SPACE_RELATION_POSITION_TRACKED_BIT);
++
++		if ((optical_relation.relation_flags & XRT_SPACE_RELATION_LINEAR_VELOCITY_VALID_BIT) != 0) {
++			out_relation->linear_velocity = optical_relation.linear_velocity;
++			out_relation->relation_flags = (enum xrt_space_relation_flags)(
++			    out_relation->relation_flags | XRT_SPACE_RELATION_LINEAR_VELOCITY_VALID_BIT);
++		}
++	}
++
++	if (name == XRT_INPUT_WMR_AIM_POSE || name == XRT_INPUT_G2_CONTROLLER_AIM_POSE ||
++	    name == XRT_INPUT_ODYSSEY_CONTROLLER_AIM_POSE) {
++		const float half_angle = debug_get_float_option_wmr_controller_aim_yaw_degrees() *
++		                         (float)M_PI / 360.0f;
++		const struct xrt_quat offset = {
++		    .x = 0.0f,
++		    .y = sinf(half_angle),
++		    .z = 0.0f,
++		    .w = cosf(half_angle),
++		};
++
++		const struct xrt_quat q = out_relation->pose.orientation;
++
++		out_relation->pose.orientation.x =
++		    q.w * offset.x + q.x * offset.w + q.y * offset.z - q.z * offset.y;
++		out_relation->pose.orientation.y =
++		    q.w * offset.y - q.x * offset.z + q.y * offset.w + q.z * offset.x;
++		out_relation->pose.orientation.z =
++		    q.w * offset.z + q.x * offset.y - q.y * offset.x + q.z * offset.w;
++		out_relation->pose.orientation.w =
++		    q.w * offset.w - q.x * offset.x - q.y * offset.y - q.z * offset.z;
++	}
++
+ 	return XRT_SUCCESS;
+ }
+ 
++static xrt_result_t
++wmr_controller_base_set_output(struct xrt_device *xdev,
++                               enum xrt_output_name name,
++                               const struct xrt_output_value *value)
++{
++	switch (name) {
++	case XRT_OUTPUT_NAME_WMR_HAPTIC:
++	case XRT_OUTPUT_NAME_G2_CONTROLLER_HAPTIC:
++	case XRT_OUTPUT_NAME_ODYSSEY_CONTROLLER_HAPTIC: return XRT_SUCCESS;
++	default: return XRT_ERROR_NOT_IMPLEMENTED;
++	}
++}
++
+ void
+ wmr_controller_base_deinit(struct wmr_controller_base *wcb)
+ {
+@@ -509,11 +573,16 @@ wmr_controller_base_deinit(struct wmr_controller_base *wcb)
+ 		wmr_controller_connection_disconnect(conn);
+ 	}
+ 
++	m_relation_history_destroy(&wcb->constellation_relation_history);
++
+ 	os_mutex_destroy(&wcb->conn_lock);
+ 	os_mutex_destroy(&wcb->data_lock);
+ 
+ 	// Destroy the fusion.
+ 	m_imu_3dof_close(&wcb->fusion);
++
++	free(wcb->constellation_leds);
++	wcb->constellation_leds = NULL;
+ }
+ 
+ /*
+@@ -534,6 +603,14 @@ wmr_controller_base_init(struct wmr_controller_base *wcb,
+ 	wcb->log_level = log_level;
+ 	wcb->wcc = conn;
+ 	wcb->receive_bytes = receive_bytes;
++	wcb->constellation_device.push_constellation_tracker_sample =
++	    wmr_controller_base_push_constellation_tracker_sample;
++	wcb->constellation_tracking_source.get_tracked_pose = wmr_controller_base_constellation_get_tracked_pose;
++	wcb->constellation_device_id = XRT_CONSTELLATION_INVALID_DEVICE_ID;
++	wcb->constellation_registered = false;
++	wcb->constellation_sample_count = 0;
++	wcb->constellation_rejected_sample_count = 0;
++	wcb->has_last_constellation_position = false;
+ 
+ 	if (controller_type == XRT_DEVICE_TYPE_LEFT_HAND_CONTROLLER) {
+ 		snprintf(wcb->base.str, ARRAY_SIZE(wcb->base.str), "WMR Left Controller");
+@@ -547,14 +624,20 @@ wmr_controller_base_init(struct wmr_controller_base *wcb,
+ 
+ 	// Set all functions.
+ 	u_device_populate_function_pointers(&wcb->base, wmr_controller_base_get_tracked_pose, destroy_fn);
++	wcb->base.set_output = wmr_controller_base_set_output;
+ 
+ 	wcb->base.name = XRT_DEVICE_WMR_CONTROLLER;
+ 	wcb->base.device_type = controller_type;
+ 	wcb->base.supported.orientation_tracking = true;
+-	wcb->base.supported.position_tracking = false;
++	wcb->base.supported.position_tracking = true;
+ 	wcb->base.supported.hand_tracking = false;
+ 
+ 	m_imu_3dof_init(&wcb->fusion, M_IMU_3DOF_USE_GRAVITY_DUR_20MS);
++	m_relation_history_create(&wcb->constellation_relation_history);
++	if (wcb->constellation_relation_history == NULL) {
++		WMR_ERROR(wcb, "WMR Controller: Failed to init constellation relation history!");
++		return false;
++	}
+ 
+ 	if (os_mutex_init(&wcb->conn_lock) != 0 || os_mutex_init(&wcb->data_lock) != 0) {
+ 		WMR_ERROR(wcb, "WMR Controller: Failed to init mutex!");
+@@ -576,9 +659,14 @@ wmr_controller_base_init(struct wmr_controller_base *wcb,
+ 	}
+ 
+ 	/* Quiesce/restart controller tasks */
+-	fw_cmd = WMR_CONTROLLER_FW_CMD_INIT(0x06, 0x04, 0xc1, 0x02);
+-	if (wmr_controller_send_fw_cmd(wcb, &fw_cmd, 0x06, &fw_cmd_response) < 0) {
+-		return false;
++	if (debug_get_bool_option_wmr_controller_task_restart()) {
++		WMR_INFO(wcb, "Sending WMR controller task restart command");
++		fw_cmd = WMR_CONTROLLER_FW_CMD_INIT(0x06, 0x04, 0xc1, 0x02);
++		if (wmr_controller_send_fw_cmd(wcb, &fw_cmd, 0x06, &fw_cmd_response) < 0) {
++			return false;
++		}
++	} else {
++		WMR_INFO(wcb, "Skipping WMR controller task restart command");
+ 	}
+ 
+ 	// Read config file from controller

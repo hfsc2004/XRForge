@@ -1,0 +1,155 @@
+diff --git a/src/xrt/drivers/wmr/wmr_controller_base.c b/src/xrt/drivers/wmr/wmr_controller_base.c
+index a2ce7dc88..c15b324fc 100644
+--- a/src/xrt/drivers/wmr/wmr_controller_base.c
++++ b/src/xrt/drivers/wmr/wmr_controller_base.c
+@@ -31,6 +31,7 @@
+ #include "wmr_config_key.h"
+ 
+ #include <ctype.h>
++#include <inttypes.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -51,6 +52,23 @@
+ 		WMR_DEBUG_HEX(wcb, buf, length);                                                                       \
+ 	} while (0);
+ 
++DEBUG_GET_ONCE_FLOAT_OPTION(wmr_controller_fallback_x, "WMR_CONTROLLER_FALLBACK_X", 0.14f)
++DEBUG_GET_ONCE_FLOAT_OPTION(wmr_controller_fallback_y, "WMR_CONTROLLER_FALLBACK_Y", -0.28f)
++DEBUG_GET_ONCE_FLOAT_OPTION(wmr_controller_fallback_z, "WMR_CONTROLLER_FALLBACK_Z", -0.10f)
++DEBUG_GET_ONCE_BOOL_OPTION(wmr_controller_fallback_follow_hmd, "WMR_CONTROLLER_FALLBACK_FOLLOW_HMD", true)
++DEBUG_GET_ONCE_FLOAT_OPTION(wmr_controller_aim_yaw_degrees, "WMR_CONTROLLER_AIM_YAW_DEGREES", 65.0f)
++DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_min_matched_blobs, "WMR_CONTROLLER_MIN_MATCHED_BLOBS", 4)
++DEBUG_GET_ONCE_FLOAT_OPTION(wmr_controller_max_reprojection_error, "WMR_CONTROLLER_MAX_REPROJECTION_ERROR", 35.0f)
++DEBUG_GET_ONCE_FLOAT_OPTION(wmr_controller_max_position_jump, "WMR_CONTROLLER_MAX_POSITION_JUMP", 0.18f)
++DEBUG_GET_ONCE_FLOAT_OPTION(wmr_controller_optical_position_alpha, "WMR_CONTROLLER_OPTICAL_POSITION_ALPHA", 0.25f)
++DEBUG_GET_ONCE_BOOL_OPTION(wmr_controller_task_restart, "WMR_CONTROLLER_TASK_RESTART", true)
++
++
++static xrt_result_t
++wmr_controller_base_get_tracked_pose(struct xrt_device *xdev,
++                                     enum xrt_input_name name,
++                                     int64_t at_timestamp_ns,
++                                     struct xrt_space_relation *out_relation);
+ 
+ static inline struct wmr_controller_base *
+ wmr_controller_base(struct xrt_device *p)
+@@ -58,6 +76,118 @@ wmr_controller_base(struct xrt_device *p)
+ 	return (struct wmr_controller_base *)p;
+ }
+ 
++struct wmr_controller_base *
++wmr_controller_base_from_xrt_device(struct xrt_device *xdev)
++{
++	if (xdev == NULL) {
++		return NULL;
++	}
++
++	if (xdev->device_type != XRT_DEVICE_TYPE_LEFT_HAND_CONTROLLER &&
++	    xdev->device_type != XRT_DEVICE_TYPE_RIGHT_HAND_CONTROLLER) {
++		return NULL;
++	}
++
++	if (xdev->name != XRT_DEVICE_WMR_CONTROLLER) {
++		return NULL;
++	}
++
++	return wmr_controller_base(xdev);
++}
++
++static inline struct wmr_controller_base *
++wmr_controller_base_from_constellation_device(struct t_constellation_tracker_device *device)
++{
++	return container_of(device, struct wmr_controller_base, constellation_device);
++}
++
++static inline struct wmr_controller_base *
++wmr_controller_base_from_constellation_tracking_source(struct t_constellation_tracker_tracking_source *source)
++{
++	return container_of(source, struct wmr_controller_base, constellation_tracking_source);
++}
++
++static void
++wmr_controller_base_constellation_get_tracked_pose(struct t_constellation_tracker_tracking_source *source,
++                                                   int64_t when_ns,
++                                                   struct xrt_space_relation *out_relation)
++{
++	struct wmr_controller_base *wcb = wmr_controller_base_from_constellation_tracking_source(source);
++	wmr_controller_base_get_tracked_pose(&wcb->base, XRT_INPUT_GENERIC_GRIP_POSE, when_ns, out_relation);
++}
++
++static void
++wmr_controller_base_push_constellation_tracker_sample(struct t_constellation_tracker_device *device,
++                                                      struct t_constellation_tracker_sample *sample)
++{
++	struct wmr_controller_base *wcb = wmr_controller_base_from_constellation_device(device);
++	wcb->constellation_sample_count++;
++
++	if (wcb->constellation_sample_count == 1 || wcb->constellation_sample_count % 60 == 0) {
++		WMR_INFO(wcb,
++		         "WMR optical controller sample #%" PRIu64
++		         " pose=(%.3f %.3f %.3f) matched=%u visible=%u reprojection=%.3f",
++		         wcb->constellation_sample_count, sample->pose.position.x, sample->pose.position.y,
++		         sample->pose.position.z, sample->metrics.matched_blob_count, sample->metrics.visible_led_count,
++		         sample->metrics.reprojection_error);
++	}
++
++	const uint32_t min_matched = (uint32_t)debug_get_num_option_wmr_controller_min_matched_blobs();
++	const float max_reprojection = debug_get_float_option_wmr_controller_max_reprojection_error();
++	const float max_jump = debug_get_float_option_wmr_controller_max_position_jump();
++	const struct xrt_vec3 sample_position = sample->pose.position;
++
++	bool reject = sample->metrics.matched_blob_count < min_matched ||
++	              sample->metrics.reprojection_error > (double)max_reprojection;
++
++	if (!reject && wcb->has_last_constellation_position && max_jump > 0.0f) {
++		const struct xrt_vec3 delta = {
++		    .x = sample_position.x - wcb->last_constellation_position.x,
++		    .y = sample_position.y - wcb->last_constellation_position.y,
++		    .z = sample_position.z - wcb->last_constellation_position.z,
++		};
++		const float jump = sqrtf(delta.x * delta.x + delta.y * delta.y + delta.z * delta.z);
++		reject = jump > max_jump;
++	}
++
++	if (reject) {
++		wcb->constellation_rejected_sample_count++;
++		if (wcb->constellation_rejected_sample_count == 1 ||
++		    wcb->constellation_rejected_sample_count % 60 == 0) {
++			WMR_INFO(wcb,
++			         "Rejected WMR optical controller sample #%" PRIu64
++			         " matched=%u reprojection=%.3f pos=(%.3f %.3f %.3f)",
++			         wcb->constellation_sample_count, sample->metrics.matched_blob_count,
++			         sample->metrics.reprojection_error, sample_position.x, sample_position.y,
++			         sample_position.z);
++		}
++		return;
++	}
++
++	struct xrt_vec3 filtered_position = sample_position;
++	if (wcb->has_last_constellation_position) {
++		float alpha = debug_get_float_option_wmr_controller_optical_position_alpha();
++		alpha = CLAMP(alpha, 0.0f, 1.0f);
++		filtered_position.x = wcb->last_constellation_position.x +
++		                      (sample_position.x - wcb->last_constellation_position.x) * alpha;
++		filtered_position.y = wcb->last_constellation_position.y +
++		                      (sample_position.y - wcb->last_constellation_position.y) * alpha;
++		filtered_position.z = wcb->last_constellation_position.z +
++		                      (sample_position.z - wcb->last_constellation_position.z) * alpha;
++	}
++
++	wcb->last_constellation_position = filtered_position;
++	wcb->has_last_constellation_position = true;
++
++	struct xrt_space_relation relation = {
++	    .pose.position = filtered_position,
++	    .pose.orientation = XRT_QUAT_IDENTITY,
++	    .relation_flags = XRT_SPACE_RELATION_POSITION_VALID_BIT | XRT_SPACE_RELATION_POSITION_TRACKED_BIT,
++	};
++
++	m_relation_history_push(wcb->constellation_relation_history, &relation, sample->timestamp_ns);
++}
++
+ static void
+ receive_bytes(struct wmr_controller_base *wcb, uint64_t time_ns, uint8_t *buffer, uint32_t buf_size)
+ {

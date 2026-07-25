@@ -1,0 +1,56 @@
+diff --git a/src/xrt/targets/common/target_builder_wmr.c b/src/xrt/targets/common/target_builder_wmr.c
+index 891767b92..5a485d2d4 100644
+--- a/src/xrt/targets/common/target_builder_wmr.c
++++ b/src/xrt/targets/common/target_builder_wmr.c
+@@ -23,6 +23,7 @@
+ 
+ #include "wmr/wmr_common.h"
+ #include "wmr/wmr_interface.h"
++#include "wmr/wmr_hmd.h"
+ 
+ #include <assert.h>
+ 
+@@ -265,6 +266,15 @@ wmr_open_system_impl(struct xrt_builder *xb,
+ 		}
+ 	}
+ 
++	if (head != NULL) {
++		if (left != NULL) {
++			(void)wmr_hmd_register_controller_for_tracking(head, left);
++		}
++		if (right != NULL) {
++			(void)wmr_hmd_register_controller_for_tracking(head, right);
++		}
++	}
++
+ 
+ 	/*
+ 	 * Tidy
+diff --git a/src/xrt/tracking/constellation/t_rift_blobwatch.c b/src/xrt/tracking/constellation/t_rift_blobwatch.c
+index 6f566d3e0..03aaf3507 100644
+--- a/src/xrt/tracking/constellation/t_rift_blobwatch.c
++++ b/src/xrt/tracking/constellation/t_rift_blobwatch.c
+@@ -306,8 +306,8 @@ extent_to_blobs(
+ 		return;
+ 	}
+ 
+-	// Don't store 1x1 blobs
+-	if (e->top == y && e->left == e->right) {
++	// Don't store 1x1 blobs unless requested by the driver.
++	if (!bw->params.allow_single_pixel_blobs && e->top == y && e->left == e->right) {
+ 		return;
+ 	}
+ 
+diff --git a/src/xrt/tracking/constellation/t_rift_blobwatch.h b/src/xrt/tracking/constellation/t_rift_blobwatch.h
+index cb8ce28f7..4013bc3b8 100644
+--- a/src/xrt/tracking/constellation/t_rift_blobwatch.h
++++ b/src/xrt/tracking/constellation/t_rift_blobwatch.h
+@@ -49,6 +49,8 @@ struct t_rift_blobwatch_params
+ 	 * large areas of brightness, such as the sun or a window, from being considered as a single large blob.
+ 	 */
+ 	uint16_t max_blob_width;
++	//! Whether to keep single-pixel blobs. Useful for dim or distant controller LEDs.
++	bool allow_single_pixel_blobs;
+ };
+ 
+ /*!

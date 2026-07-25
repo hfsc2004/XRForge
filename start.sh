@@ -41,6 +41,7 @@ done
 ensure_not_root
 [[ -d "${MONADO_DIR}" ]] || die "Monado source tree not found: ${MONADO_DIR}"
 mkdir -p "${BUILD_DIR}"
+ensure_monado_patch_queue
 
 log "Checking required tools"
 for tool in lsusb grep sed readelf awk; do

@@ -112,7 +112,9 @@ mappings, or trigger input.
 
 ## Repository Layout
 
-- `monado-source/` - Monado source tree used for XR runtime development.
+- `monado-source/` - Monado source tree pinned to an upstream-fetchable commit.
+- `patches/monado/` - XRForge's local Monado WMR patch queue, applied by
+  `start.sh` before building.
 - `start.sh` - WMR-compatible XR SteamVR session starter.
 - `XRForge_HP_Reverb_Linux_Setup_Guide.md` - documented manual setup process
   for the first validated WMR-compatible XR device.
@@ -124,7 +126,10 @@ mappings, or trigger input.
 
 XRForge builds on Monado, an open-source XR runtime and OpenXR implementation.
 See `monado-source/README.md` and `monado-source/CONTRIBUTING.md` for upstream
-build, contribution, and licensing guidance.
+build, contribution, and licensing guidance. XRForge keeps the submodule pointer
+on an upstream-fetchable Monado commit, then applies `patches/monado/*.patch`
+locally during startup so fresh clones are reproducible without a private
+submodule commit.
 
 ## Optional Controls
 

@@ -1,0 +1,70 @@
+diff --git a/src/xrt/drivers/wmr/wmr_controller_base.c b/src/xrt/drivers/wmr/wmr_controller_base.c
+index c15b324fc..f0e0e9e17 100644
+--- a/src/xrt/drivers/wmr/wmr_controller_base.c
++++ b/src/xrt/drivers/wmr/wmr_controller_base.c
+@@ -61,7 +61,7 @@ DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_min_matched_blobs, "WMR_CONTROLLER_MIN_
+ DEBUG_GET_ONCE_FLOAT_OPTION(wmr_controller_max_reprojection_error, "WMR_CONTROLLER_MAX_REPROJECTION_ERROR", 35.0f)
+ DEBUG_GET_ONCE_FLOAT_OPTION(wmr_controller_max_position_jump, "WMR_CONTROLLER_MAX_POSITION_JUMP", 0.18f)
+ DEBUG_GET_ONCE_FLOAT_OPTION(wmr_controller_optical_position_alpha, "WMR_CONTROLLER_OPTICAL_POSITION_ALPHA", 0.25f)
+-DEBUG_GET_ONCE_BOOL_OPTION(wmr_controller_task_restart, "WMR_CONTROLLER_TASK_RESTART", true)
++DEBUG_GET_ONCE_BOOL_OPTION(wmr_controller_task_restart, "WMR_CONTROLLER_TASK_RESTART", false)
+ 
+ 
+ static xrt_result_t
+@@ -420,9 +420,9 @@ read_controller_fw_info(struct wmr_controller_base *wcb,
+ char *
+ build_cache_filename(char *serial_no)
+ {
+-	int outlen = strlen("controller-") + strlen(serial_no) + strlen(".json") + 1;
++	int outlen = strlen("controller_") + strlen(serial_no) + strlen(".json") + 1;
+ 	char *out = malloc(outlen);
+-	int ret = snprintf(out, outlen, "controller-%s.json", serial_no);
++	int ret = snprintf(out, outlen, "controller_%s.json", serial_no);
+ 
+ 	assert(ret <= outlen);
+ 	(void)ret;
+diff --git a/src/xrt/drivers/wmr/wmr_source.c b/src/xrt/drivers/wmr/wmr_source.c
+index 5e1d4707b..32bc2fbeb 100644
+--- a/src/xrt/drivers/wmr/wmr_source.c
++++ b/src/xrt/drivers/wmr/wmr_source.c
+@@ -50,6 +50,8 @@ DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_dump_frames, "WMR_CONTROLLER_DUMP_FRAME
+ DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_dump_skip_frames, "WMR_CONTROLLER_DUMP_SKIP_FRAMES", 300)
+ DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_dump_interval, "WMR_CONTROLLER_DUMP_INTERVAL", 180)
+ DEBUG_GET_ONCE_FLOAT_OPTION(wmr_controller_max_bright_fraction, "WMR_CONTROLLER_MAX_BRIGHT_FRACTION", 0.08f)
++DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_min_bright_pixels, "WMR_CONTROLLER_MIN_BRIGHT_PIXELS", 20)
++DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_max_bright_pixels, "WMR_CONTROLLER_MAX_BRIGHT_PIXELS", 5000)
+ 
+ static void
+ controller_frame_stats(struct xrt_frame *xf, uint8_t *out_max, uint32_t *out_above_pixel, uint32_t *out_above_required)
+@@ -192,9 +194,13 @@ DEFINE_RECEIVE_CAM(3)
+ 		uint32_t above_pixel = 0;                                                                             \
+ 		uint32_t above_required = 0;                                                                          \
+ 		controller_frame_stats(xf, &max_pixel, &above_pixel, &above_required);                                \
++		const uint32_t min_bright_pixels = (uint32_t)debug_get_num_option_wmr_controller_min_bright_pixels(); \
++		const uint32_t max_bright_pixels = (uint32_t)debug_get_num_option_wmr_controller_max_bright_pixels(); \
+ 		const float max_bright_fraction = debug_get_float_option_wmr_controller_max_bright_fraction();         \
+ 		const float bright_fraction = (float)above_required / (float)(xf->width * xf->height);                \
+-		const bool too_bright = bright_fraction > max_bright_fraction;                                        \
++		const bool too_dark = above_required < min_bright_pixels;                                             \
++		const bool too_bright = above_required > max_bright_pixels || bright_fraction > max_bright_fraction;   \
++		const bool skip_tracking = too_dark || too_bright;                                                    \
+ 		if (should_log || may_dump) {                                                                          \
+ 			if (should_log) {                                                                             \
+ 				WMR_INFO(ws,                                                                           \
+@@ -203,14 +209,14 @@ DEFINE_RECEIVE_CAM(3)
+ 				         " max=%u above_pixel=%u above_required=%u bright_fraction=%.3f%s",            \
+ 				         ws->controller_frame_count[cam_id], xf->timestamp, xf->source_timestamp,     \
+ 				         max_pixel, above_pixel, above_required, bright_fraction,                      \
+-				         too_bright ? " skipped" : "");                                               \
++				         skip_tracking ? (too_dark ? " skipped_dark" : " skipped_bright") : "");      \
+ 			}                                                                                           \
+ 			if (may_dump) {                                                                             \
+ 				controller_frame_dump(cam_id, ws->controller_frame_count[cam_id], xf);               \
+ 				ws->controller_frame_dump_count[cam_id]++;                                          \
+ 			}                                                                                           \
+ 		}                                                                                                      \
+-		if (ws->out_controller_sinks.cams[cam_id] && ws->first_imu_received && !too_bright) {                 \
++		if (ws->out_controller_sinks.cams[cam_id] && ws->first_imu_received && !skip_tracking) {              \
+ 			xrt_sink_push_frame(ws->out_controller_sinks.cams[cam_id], xf);                               \
+ 		}                                                                                                      \
+ 	}
