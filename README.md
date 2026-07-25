@@ -24,6 +24,9 @@ To install and run the current WMR-compatible XR device SteamVR workflow, run:
 
 Run it as your normal desktop user, not with `sudo`. SteamVR driver
 registration and SteamVR settings are user-account configuration.
+The `start.sh` entrypoint is intentionally small; support logic lives in
+`scripts/xrforge-*.sh` modules for build setup, Bluetooth, chaperone, X11 direct
+mode, and shared environment handling.
 
 That is the normal path. The script will:
 
