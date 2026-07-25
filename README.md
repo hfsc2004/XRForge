@@ -285,12 +285,13 @@ WMR_CONTROLLER_MAX_BRIGHT_PIXELS=0 \
 ```
 
 If a controller LED ring turns off when the driver initializes, test startup
-without controller reinit commands. XRForge now defaults both off for HP Reverb
-controller testing:
+without controller init/write commands. XRForge now defaults these off for HP
+Reverb controller testing:
 
 ```bash
 WMR_CONTROLLER_ZERO_COMMAND=false \
-WMR_CONTROLLER_TASK_RESTART=false ./start.sh
+WMR_CONTROLLER_TASK_RESTART=false \
+WMR_CONTROLLER_ENABLE_REPORT_COMMANDS=false ./start.sh
 ```
 
 XRForge writes a centered SteamVR chaperone before launch so room-scale apps do

@@ -1,0 +1,32 @@
+diff --git a/src/xrt/drivers/wmr/wmr_controller_base.c b/src/xrt/drivers/wmr/wmr_controller_base.c
+index a3eace66b..9eb74235d 100644
+--- a/src/xrt/drivers/wmr/wmr_controller_base.c
++++ b/src/xrt/drivers/wmr/wmr_controller_base.c
+@@ -64,6 +64,7 @@ DEBUG_GET_ONCE_FLOAT_OPTION(wmr_controller_optical_position_alpha, "WMR_CONTROL
+ DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_reacquire_after_rejects, "WMR_CONTROLLER_REACQUIRE_AFTER_REJECTS", 8)
+ DEBUG_GET_ONCE_BOOL_OPTION(wmr_controller_zero_command, "WMR_CONTROLLER_ZERO_COMMAND", false)
+ DEBUG_GET_ONCE_BOOL_OPTION(wmr_controller_task_restart, "WMR_CONTROLLER_TASK_RESTART", false)
++DEBUG_GET_ONCE_BOOL_OPTION(wmr_controller_enable_report_commands, "WMR_CONTROLLER_ENABLE_REPORT_COMMANDS", false)
+ 
+ static float
+ wmr_controller_get_aim_yaw_degrees(struct xrt_device *xdev)
+@@ -853,10 +854,15 @@ wmr_controller_base_init(struct wmr_controller_base *wcb,
+ 	wmr_config_precompute_transforms(&wcb->config.sensors, NULL);
+ 
+ 	/* Enable the status reports, IMU and control status reports */
+-	const unsigned char wmr_controller_status_enable_cmd[64] = {0x06, 0x03, 0x01, 0x00, 0x02};
+-	wmr_controller_send_bytes(wcb, wmr_controller_status_enable_cmd, sizeof(wmr_controller_status_enable_cmd));
+-	const unsigned char wmr_controller_imu_on_cmd[64] = {0x06, 0x03, 0x02, 0xe1, 0x02};
+-	wmr_controller_send_bytes(wcb, wmr_controller_imu_on_cmd, sizeof(wmr_controller_imu_on_cmd));
++	if (debug_get_bool_option_wmr_controller_enable_report_commands()) {
++		WMR_INFO(wcb, "Sending WMR controller status/IMU report enable commands");
++		const unsigned char wmr_controller_status_enable_cmd[64] = {0x06, 0x03, 0x01, 0x00, 0x02};
++		wmr_controller_send_bytes(wcb, wmr_controller_status_enable_cmd, sizeof(wmr_controller_status_enable_cmd));
++		const unsigned char wmr_controller_imu_on_cmd[64] = {0x06, 0x03, 0x02, 0xe1, 0x02};
++		wmr_controller_send_bytes(wcb, wmr_controller_imu_on_cmd, sizeof(wmr_controller_imu_on_cmd));
++	} else {
++		WMR_INFO(wcb, "Skipping WMR controller status/IMU report enable commands");
++	}
+ 
+ 	return true;
+ }

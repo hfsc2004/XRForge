@@ -7,6 +7,7 @@
 - Disabled hard bright-pixel count gating by default after testing showed it could make startup re-acquisition worse.
 - Added optical re-acquisition after repeated valid-looking position-jump rejects.
 - Defaulted the WMR controller zero/reinit startup command off to avoid dropping controller LED rings during SteamVR startup.
+- Defaulted remaining WMR controller startup report-enable commands off while isolating LED ring shutdowns.
 - Added explicit WMR controller firmware command/response logging for LED power-state debugging.
 - Added XRForge-managed centered SteamVR chaperone generation before launch for room-scale app startup.
 - Preserved the existing SteamVR standing transform when generating a larger XRForge play area.
