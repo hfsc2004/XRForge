@@ -213,18 +213,34 @@ WMR_CONTROLLER_BLOB_MAX_WIDTH=12 \
 WMR_CONTROLLER_BLOB_ALLOW_SINGLE_PIXEL=false \
 WMR_CONTROLLER_USE_SLAM_FRAMES=true \
 WMR_CONTROLLER_MAX_BRIGHT_FRACTION=0.08 \
-WMR_CONTROLLER_MIN_BRIGHT_PIXELS=20 \
-WMR_CONTROLLER_MAX_BRIGHT_PIXELS=5000 \
+WMR_CONTROLLER_MIN_BRIGHT_PIXELS=0 \
+WMR_CONTROLLER_MAX_BRIGHT_PIXELS=0 \
 ./start.sh
 ```
 
 If a controller LED ring turns off when the driver initializes, test startup
-without the controller task-restart command. XRForge now defaults this off for
-HP Reverb controller testing:
+without controller reinit commands. XRForge now defaults both off for HP Reverb
+controller testing:
 
 ```bash
+WMR_CONTROLLER_ZERO_COMMAND=false \
 WMR_CONTROLLER_TASK_RESTART=false ./start.sh
 ```
+
+XRForge writes a centered SteamVR chaperone before launch so room-scale apps do
+not inherit an old or tiny play area from a previous SteamVR Room Setup run. The
+default is a `3.0m x 3.0m` standing play area centered on the Monado tracking
+origin:
+
+```bash
+XRFORGE_STEAMVR_CHAPERONE=true
+XRFORGE_STEAMVR_PLAY_AREA=3.0
+XRFORGE_STEAMVR_STANDING_HEIGHT=0.0
+```
+
+The first existing SteamVR chaperone file is backed up as
+`~/.local/share/Steam/config/chaperone_info.vrchap.xrforge-backup`. Set
+`XRFORGE_STEAMVR_CHAPERONE=false` to leave SteamVR's room setup untouched.
 
 Optical pose samples are quality-gated before they replace fallback position:
 
@@ -233,6 +249,7 @@ WMR_CONTROLLER_MIN_MATCHED_BLOBS=4
 WMR_CONTROLLER_MAX_REPROJECTION_ERROR=35
 WMR_CONTROLLER_MAX_POSITION_JUMP=0.18
 WMR_CONTROLLER_OPTICAL_POSITION_ALPHA=0.25
+WMR_CONTROLLER_REACQUIRE_AFTER_REJECTS=8
 ```
 
 To capture the raw controller camera images that are feeding the blob detector:

@@ -4,6 +4,11 @@
 
 - Added WMR controller optical frame gating to skip dark/no-signal frames and flooded frames before blob tracking.
 - Added `WMR_CONTROLLER_MIN_BRIGHT_PIXELS` and `WMR_CONTROLLER_MAX_BRIGHT_PIXELS` launcher controls.
+- Disabled hard bright-pixel count gating by default after testing showed it could make startup re-acquisition worse.
+- Added optical re-acquisition after repeated valid-looking position-jump rejects.
+- Defaulted the WMR controller zero/reinit startup command off to avoid dropping controller LED rings during SteamVR startup.
+- Added explicit WMR controller firmware command/response logging for LED power-state debugging.
+- Added XRForge-managed centered SteamVR chaperone generation before launch for room-scale app startup.
 - Fixed WMR controller calibration cache lookup to use Monado's existing `controller_<serial>.json` filenames.
 - Defaulted `WMR_CONTROLLER_TASK_RESTART` off inside the Monado WMR driver path to match XRForge startup behavior.
 - Updated HP Reverb controller tracking documentation.
