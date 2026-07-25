@@ -4,7 +4,7 @@
 
 # XRForge
 
-Current version: `0.2.0`
+Current version: `0.2.1`
 
 XRForge is an open-source XR hardware compatibility project focused on bringing
 VR, AR, and MR headsets and controllers to Linux through open standards such as
@@ -213,6 +213,8 @@ WMR_CONTROLLER_BLOB_MAX_WIDTH=12 \
 WMR_CONTROLLER_BLOB_ALLOW_SINGLE_PIXEL=false \
 WMR_CONTROLLER_USE_SLAM_FRAMES=true \
 WMR_CONTROLLER_MAX_BRIGHT_FRACTION=0.08 \
+WMR_CONTROLLER_MIN_BRIGHT_PIXELS=20 \
+WMR_CONTROLLER_MAX_BRIGHT_PIXELS=5000 \
 ./start.sh
 ```
 

@@ -1,6 +1,6 @@
 # XRForge - HP Reverb Linux Setup Guide
 
-XRForge version: `0.2.0`
+XRForge version: `0.2.1`
 
 ## Purpose
 
@@ -421,6 +421,8 @@ WMR_CONTROLLER_BLOB_MAX_WIDTH=12
 WMR_CONTROLLER_BLOB_ALLOW_SINGLE_PIXEL=false
 WMR_CONTROLLER_USE_SLAM_FRAMES=true
 WMR_CONTROLLER_MAX_BRIGHT_FRACTION=0.08
+WMR_CONTROLLER_MIN_BRIGHT_PIXELS=20
+WMR_CONTROLLER_MAX_BRIGHT_PIXELS=5000
 ```
 
 If one controller LED ring turns off when XRForge initializes the controllers,
