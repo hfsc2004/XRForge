@@ -1,0 +1,38 @@
+diff --git a/src/xrt/drivers/wmr/wmr_controller_base.c b/src/xrt/drivers/wmr/wmr_controller_base.c
+index ae0669bf3..a3eace66b 100644
+--- a/src/xrt/drivers/wmr/wmr_controller_base.c
++++ b/src/xrt/drivers/wmr/wmr_controller_base.c
+@@ -65,6 +65,23 @@ DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_reacquire_after_rejects, "WMR_CONTROLLE
+ DEBUG_GET_ONCE_BOOL_OPTION(wmr_controller_zero_command, "WMR_CONTROLLER_ZERO_COMMAND", false)
+ DEBUG_GET_ONCE_BOOL_OPTION(wmr_controller_task_restart, "WMR_CONTROLLER_TASK_RESTART", false)
+ 
++static float
++wmr_controller_get_aim_yaw_degrees(struct xrt_device *xdev)
++{
++	const char *env = xdev->device_type == XRT_DEVICE_TYPE_LEFT_HAND_CONTROLLER
++	                      ? getenv("WMR_CONTROLLER_AIM_YAW_DEGREES_LEFT")
++	                      : getenv("WMR_CONTROLLER_AIM_YAW_DEGREES_RIGHT");
++
++	if (env != NULL && env[0] != '\0') {
++		char *end = NULL;
++		float value = strtof(env, &end);
++		if (end != env) {
++			return value;
++		}
++	}
++
++	return debug_get_float_option_wmr_controller_aim_yaw_degrees();
++}
+ 
+ static xrt_result_t
+ wmr_controller_base_get_tracked_pose(struct xrt_device *xdev,
+@@ -672,8 +689,7 @@ wmr_controller_base_get_tracked_pose(struct xrt_device *xdev,
+ 
+ 	if (name == XRT_INPUT_WMR_AIM_POSE || name == XRT_INPUT_G2_CONTROLLER_AIM_POSE ||
+ 	    name == XRT_INPUT_ODYSSEY_CONTROLLER_AIM_POSE) {
+-		const float half_angle = debug_get_float_option_wmr_controller_aim_yaw_degrees() *
+-		                         (float)M_PI / 360.0f;
++		const float half_angle = wmr_controller_get_aim_yaw_degrees(xdev) * (float)M_PI / 360.0f;
+ 		const struct xrt_quat offset = {
+ 		    .x = 0.0f,
+ 		    .y = sinf(half_angle),

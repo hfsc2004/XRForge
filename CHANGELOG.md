@@ -13,6 +13,7 @@
 - Defaulted SteamVR controller presentation to Index emulation to avoid generic locator-axis render models.
 - Added per-hand WMR aim yaw overrides for asymmetric controller pointer correction.
 - Split the XRForge launcher into focused `scripts/` modules and removed the stale Monado patch artifact.
+- Replaced the unreachable patched Monado submodule pointer with an upstream-fetchable submodule plus a split XRForge patch queue.
 - Fixed WMR controller calibration cache lookup to use Monado's existing `controller_<serial>.json` filenames.
 - Defaulted `WMR_CONTROLLER_TASK_RESTART` off inside the Monado WMR driver path to match XRForge startup behavior.
 - Updated HP Reverb controller tracking documentation.

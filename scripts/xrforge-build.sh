@@ -36,6 +36,38 @@ ensure_monado_build_config() {
   fi
 }
 
+ensure_monado_patch_queue() {
+  local patch_dir="${ROOT_DIR}/patches/monado"
+  local patches=()
+  local patch_file
+
+  [[ -d "${patch_dir}" ]] || return 0
+  while IFS= read -r patch_file; do
+    patches+=("${patch_file}")
+  done < <(find "${patch_dir}" -maxdepth 1 -type f -name '*.patch' | sort)
+  [[ "${#patches[@]}" -gt 0 ]] || return 0
+
+  if monado_patch_queue_is_applied "${patches[@]}"; then
+    printf 'XRForge Monado patch queue already applied.\n'
+    return 0
+  fi
+
+  log "Applying XRForge Monado patch queue"
+  for patch_file in "${patches[@]}"; do
+    if ! git -C "${MONADO_DIR}" apply --check "${patch_file}" >/dev/null 2>&1; then
+      die "Monado patch does not apply cleanly: ${patch_file}"
+    fi
+    git -C "${MONADO_DIR}" apply "${patch_file}"
+  done
+}
+
+monado_patch_queue_is_applied() {
+  local patches=("$@")
+  local last_index=$((${#patches[@]} - 1))
+
+  git -C "${MONADO_DIR}" apply --reverse --check "${patches[last_index]}" >/dev/null 2>&1
+}
+
 ensure_steamvr_driver_runpath() {
   [[ -f "${STEAMVR_DRIVER_SO}" ]] || return
   if readelf -d "${STEAMVR_DRIVER_SO}" | grep -q 'RUNPATH.*\[$ORIGIN\]'; then

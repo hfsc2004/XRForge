@@ -1,0 +1,212 @@
+diff --git a/src/xrt/drivers/wmr/wmr_source.c b/src/xrt/drivers/wmr/wmr_source.c
+index 9b3cf7c48..5e1d4707b 100644
+--- a/src/xrt/drivers/wmr/wmr_source.c
++++ b/src/xrt/drivers/wmr/wmr_source.c
+@@ -22,6 +22,7 @@
+ #include "xrt/xrt_frameserver.h"
+ 
+ #include <assert.h>
++#include <inttypes.h>
+ #include <stdio.h>
+ 
+ #define WMR_SOURCE_STR "WMR Source"
+@@ -43,6 +44,61 @@
+ #define WMR_ASSERT_(predicate) WMR_ASSERT(predicate, "Assertion failed " #predicate)
+ 
+ DEBUG_GET_ONCE_LOG_OPTION(wmr_log, "WMR_LOG", U_LOGGING_INFO)
++DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_blob_pixel_threshold, "WMR_CONTROLLER_BLOB_PIXEL_THRESHOLD", 220)
++DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_blob_required_threshold, "WMR_CONTROLLER_BLOB_REQUIRED_THRESHOLD", 240)
++DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_dump_frames, "WMR_CONTROLLER_DUMP_FRAMES", 0)
++DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_dump_skip_frames, "WMR_CONTROLLER_DUMP_SKIP_FRAMES", 300)
++DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_dump_interval, "WMR_CONTROLLER_DUMP_INTERVAL", 180)
++DEBUG_GET_ONCE_FLOAT_OPTION(wmr_controller_max_bright_fraction, "WMR_CONTROLLER_MAX_BRIGHT_FRACTION", 0.08f)
++
++static void
++controller_frame_stats(struct xrt_frame *xf, uint8_t *out_max, uint32_t *out_above_pixel, uint32_t *out_above_required)
++{
++	uint8_t max_pixel = 0;
++	uint32_t above_pixel = 0;
++	uint32_t above_required = 0;
++	const uint8_t pixel_threshold = (uint8_t)debug_get_num_option_wmr_controller_blob_pixel_threshold();
++	const uint8_t required_threshold = (uint8_t)debug_get_num_option_wmr_controller_blob_required_threshold();
++
++	for (uint32_t y = 0; y < xf->height; y++) {
++		const uint8_t *row = xf->data + y * xf->stride;
++		for (uint32_t x = 0; x < xf->width; x++) {
++			const uint8_t px = row[x];
++			max_pixel = MAX(max_pixel, px);
++			if (px > pixel_threshold) {
++				above_pixel++;
++			}
++			if (px >= required_threshold) {
++				above_required++;
++			}
++		}
++	}
++
++	*out_max = max_pixel;
++	*out_above_pixel = above_pixel;
++	*out_above_required = above_required;
++}
++
++static void
++controller_frame_dump(int camera_id, uint64_t frame_count, const struct xrt_frame *xf)
++{
++	char path[128];
++	(void)snprintf(path, sizeof(path), "/tmp/xrforge-wmr-controller-cam%d-%06" PRIu64 ".pgm", camera_id,
++	               frame_count);
++
++	FILE *file = fopen(path, "wb");
++	if (file == NULL) {
++		return;
++	}
++
++	(void)fprintf(file, "P5\n%u %u\n255\n", xf->width, xf->height);
++	for (uint32_t y = 0; y < xf->height; y++) {
++		const uint8_t *row = xf->data + y * xf->stride;
++		(void)fwrite(row, 1, xf->width, file);
++	}
++
++	fclose(file);
++}
+ 
+ /*!
+  * Handles all the data sources from the WMR driver
+@@ -62,9 +118,14 @@ struct wmr_source
+ 
+ 	// Sinks (head tracking)
+ 	struct xrt_frame_sink cam_sinks[WMR_MAX_CAMERAS]; //!< Intermediate sinks for camera frames
++	struct xrt_frame_sink controller_cam_sinks[WMR_MAX_CAMERAS]; //!< Intermediate sinks for controller frames
+ 	struct xrt_imu_sink imu_sink;                     //!< Intermediate sink for IMU samples
+ 	struct xrt_slam_sinks in_sinks;                   //!< Pointers to intermediate sinks
+ 	struct xrt_slam_sinks out_sinks;                  //!< Pointers to downstream sinks
++	struct xrt_slam_sinks in_controller_sinks;        //!< Pointers to controller intermediate sinks
++	struct xrt_slam_sinks out_controller_sinks;       //!< Pointers to downstream controller sinks
++	uint64_t controller_frame_count[WMR_MAX_CAMERAS];
++	uint32_t controller_frame_dump_count[WMR_MAX_CAMERAS];
+ 
+ 	// UI Sinks (head tracking)
+ 	struct u_sink_debug ui_cam_sinks[WMR_MAX_CAMERAS]; //!< Sink to display camera frames in UI
+@@ -105,6 +166,67 @@ DEFINE_RECEIVE_CAM(1)
+ DEFINE_RECEIVE_CAM(2)
+ DEFINE_RECEIVE_CAM(3)
+ 
++// Controller frames use the same timestamp conversion as head-tracking frames,
++// but they are routed to a separate optical-controller tracker.
++#define DEFINE_RECEIVE_CONTROLLER_CAM(cam_id)                                                                          \
++	static void receive_controller_cam##cam_id(struct xrt_frame_sink *sink, struct xrt_frame *xf)                  \
++	{                                                                                                              \
++		struct wmr_source *ws = container_of(sink, struct wmr_source, controller_cam_sinks[cam_id]);           \
++		if (cam_id == 0) {                                                                                     \
++			ws->cam_hw2mono = ws->hw2mono;                                                                 \
++		}                                                                                                      \
++		ws->controller_frame_count[cam_id]++;                                                                  \
++		xf->timestamp += ws->cam_hw2mono;                                                                      \
++		const uint32_t dump_limit = (uint32_t)debug_get_num_option_wmr_controller_dump_frames();              \
++		const uint64_t dump_skip = (uint64_t)debug_get_num_option_wmr_controller_dump_skip_frames();          \
++		uint64_t dump_interval = (uint64_t)debug_get_num_option_wmr_controller_dump_interval();               \
++		if (dump_interval == 0) {                                                                             \
++			dump_interval = 1;                                                                            \
++		}                                                                                                      \
++		const bool should_log = ws->controller_frame_count[cam_id] == 1 ||                                     \
++		                        ws->controller_frame_count[cam_id] % 180 == 0;                                 \
++		const bool dump_frame = ws->controller_frame_count[cam_id] >= dump_skip &&                            \
++		                        (ws->controller_frame_count[cam_id] - dump_skip) % dump_interval == 0;         \
++		const bool may_dump = ws->controller_frame_dump_count[cam_id] < dump_limit && dump_frame;             \
++		uint8_t max_pixel = 0;                                                                                \
++		uint32_t above_pixel = 0;                                                                             \
++		uint32_t above_required = 0;                                                                          \
++		controller_frame_stats(xf, &max_pixel, &above_pixel, &above_required);                                \
++		const float max_bright_fraction = debug_get_float_option_wmr_controller_max_bright_fraction();         \
++		const float bright_fraction = (float)above_required / (float)(xf->width * xf->height);                \
++		const bool too_bright = bright_fraction > max_bright_fraction;                                        \
++		if (should_log || may_dump) {                                                                          \
++			if (should_log) {                                                                             \
++				WMR_INFO(ws,                                                                           \
++				         "controller cam" #cam_id " frame #%" PRIu64                                  \
++				         " t=%" PRId64 " source_t=%" PRId64                                          \
++				         " max=%u above_pixel=%u above_required=%u bright_fraction=%.3f%s",            \
++				         ws->controller_frame_count[cam_id], xf->timestamp, xf->source_timestamp,     \
++				         max_pixel, above_pixel, above_required, bright_fraction,                      \
++				         too_bright ? " skipped" : "");                                               \
++			}                                                                                           \
++			if (may_dump) {                                                                             \
++				controller_frame_dump(cam_id, ws->controller_frame_count[cam_id], xf);               \
++				ws->controller_frame_dump_count[cam_id]++;                                          \
++			}                                                                                           \
++		}                                                                                                      \
++		if (ws->out_controller_sinks.cams[cam_id] && ws->first_imu_received && !too_bright) {                 \
++			xrt_sink_push_frame(ws->out_controller_sinks.cams[cam_id], xf);                               \
++		}                                                                                                      \
++	}
++
++DEFINE_RECEIVE_CONTROLLER_CAM(0)
++DEFINE_RECEIVE_CONTROLLER_CAM(1)
++DEFINE_RECEIVE_CONTROLLER_CAM(2)
++DEFINE_RECEIVE_CONTROLLER_CAM(3)
++
++void (*receive_controller_cam[WMR_MAX_CAMERAS])(struct xrt_frame_sink *, struct xrt_frame *) = {
++    receive_controller_cam0, //
++    receive_controller_cam1, //
++    receive_controller_cam2, //
++    receive_controller_cam3, //
++};
++
+ //! Define a function for each WMR_MAX_CAMERAS and reference it in this array
+ void (*receive_cam[WMR_MAX_CAMERAS])(struct xrt_frame_sink *, struct xrt_frame *) = {
+     receive_cam0, //
+@@ -318,19 +440,23 @@ wmr_source_create(struct xrt_frame_context *xfctx, struct xrt_prober_device *dev
+ 	// Setup sinks
+ 	for (int i = 0; i < WMR_MAX_CAMERAS; i++) {
+ 		ws->cam_sinks[i].push_frame = receive_cam[i];
++		ws->controller_cam_sinks[i].push_frame = receive_controller_cam[i];
+ 	}
+ 	ws->imu_sink.push_imu = receive_imu_sample;
+ 
+ 	ws->in_sinks.cam_count = cfg.tcam_count;
+ 	for (int i = 0; i < cfg.tcam_count; i++) {
+ 		ws->in_sinks.cams[i] = &ws->cam_sinks[i];
++		ws->in_controller_sinks.cams[i] = &ws->controller_cam_sinks[i];
+ 	}
+ 	ws->in_sinks.imu = &ws->imu_sink;
++	ws->in_controller_sinks.cam_count = cfg.tcam_count;
+ 
+ 	struct wmr_camera_open_config options = {
+ 	    .dev_holo = dev_holo,
+ 	    .tcam_confs = cfg.tcams,
+ 	    .tcam_sinks = ws->in_sinks.cams,
++	    .controller_tcam_sinks = ws->in_controller_sinks.cams,
+ 	    .tcam_count = cfg.tcam_count,
+ 	    .slam_cam_count = cfg.slam_cam_count,
+ 	    .log_level = ws->log_level,
+@@ -366,6 +492,15 @@ wmr_source_create(struct xrt_frame_context *xfctx, struct xrt_prober_device *dev
+ 	return xfs;
+ }
+ 
++void
++wmr_source_set_controller_sinks(struct xrt_fs *xfs, const struct xrt_slam_sinks *sinks)
++{
++	struct wmr_source *ws = wmr_source_from_xfs(xfs);
++	if (sinks != NULL) {
++		ws->out_controller_sinks = *sinks;
++	}
++}
++
+ void
+ wmr_source_push_imu_packet(struct xrt_fs *xfs, timepoint_ns t, struct xrt_vec3 accel, struct xrt_vec3 gyro)
+ {
+diff --git a/src/xrt/drivers/wmr/wmr_source.h b/src/xrt/drivers/wmr/wmr_source.h
+index 4d2623c22..8325a909f 100644
+--- a/src/xrt/drivers/wmr/wmr_source.h
++++ b/src/xrt/drivers/wmr/wmr_source.h
+@@ -30,6 +30,10 @@ extern "C" {
+ struct xrt_fs *
+ wmr_source_create(struct xrt_frame_context *xfctx, struct xrt_prober_device *dev_holo, struct wmr_hmd_config cfg);
+ 
++//! Set downstream sinks that receive controller-tracking camera frames.
++void
++wmr_source_set_controller_sinks(struct xrt_fs *xfs, const struct xrt_slam_sinks *sinks);
++
+ //! @todo IMU data should be generated from within the data source, but right
+ //! now we need this function because it is being generated from wmr_hmd
+ //! @todo Should this method receive raw or calibrated samples? Currently

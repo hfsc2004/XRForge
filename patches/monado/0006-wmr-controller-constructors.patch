@@ -1,0 +1,32 @@
+diff --git a/src/xrt/drivers/wmr/wmr_controller_hp.c b/src/xrt/drivers/wmr/wmr_controller_hp.c
+index 6150bba7c..b36cddcfe 100644
+--- a/src/xrt/drivers/wmr/wmr_controller_hp.c
++++ b/src/xrt/drivers/wmr/wmr_controller_hp.c
+@@ -395,12 +395,12 @@ wmr_controller_hp_create(struct wmr_controller_connection *conn,
+ 	}
+ 
+ 	for (uint32_t i = 0; i < wcb->base.input_count; i++) {
+-		wcb->base.inputs[0].active = true;
++		wcb->base.inputs[i].active = true;
+ 	}
+ 
+ 	ctrl->last_inputs.imu.timestamp_ticks = 0;
+ 
+-	wcb->base.outputs[0].name = XRT_OUTPUT_NAME_WMR_HAPTIC;
++	wcb->base.outputs[0].name = XRT_OUTPUT_NAME_G2_CONTROLLER_HAPTIC;
+ 
+ 	wcb->base.binding_profiles = binding_profiles;
+ 	wcb->base.binding_profile_count = ARRAY_SIZE(binding_profiles);
+diff --git a/src/xrt/drivers/wmr/wmr_controller_og.c b/src/xrt/drivers/wmr/wmr_controller_og.c
+index a5c3d0b63..369efc6bd 100644
+--- a/src/xrt/drivers/wmr/wmr_controller_og.c
++++ b/src/xrt/drivers/wmr/wmr_controller_og.c
+@@ -466,7 +466,7 @@ wmr_controller_og_create(struct wmr_controller_connection *conn,
+ 	}
+ 
+ 	for (uint32_t i = 0; i < wcb->base.input_count; i++) {
+-		wcb->base.inputs[0].active = true;
++		wcb->base.inputs[i].active = true;
+ 	}
+ 
+ 	ctrl->last_inputs.imu.timestamp_ticks = 0;

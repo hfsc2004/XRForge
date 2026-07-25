@@ -1,0 +1,53 @@
+diff --git a/src/xrt/drivers/wmr/wmr_controller_base.c b/src/xrt/drivers/wmr/wmr_controller_base.c
+index f9e9ef612..ae0669bf3 100644
+--- a/src/xrt/drivers/wmr/wmr_controller_base.c
++++ b/src/xrt/drivers/wmr/wmr_controller_base.c
+@@ -62,6 +62,7 @@ DEBUG_GET_ONCE_FLOAT_OPTION(wmr_controller_max_reprojection_error, "WMR_CONTROLL
+ DEBUG_GET_ONCE_FLOAT_OPTION(wmr_controller_max_position_jump, "WMR_CONTROLLER_MAX_POSITION_JUMP", 0.18f)
+ DEBUG_GET_ONCE_FLOAT_OPTION(wmr_controller_optical_position_alpha, "WMR_CONTROLLER_OPTICAL_POSITION_ALPHA", 0.25f)
+ DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_reacquire_after_rejects, "WMR_CONTROLLER_REACQUIRE_AFTER_REJECTS", 8)
++DEBUG_GET_ONCE_BOOL_OPTION(wmr_controller_zero_command, "WMR_CONTROLLER_ZERO_COMMAND", false)
+ DEBUG_GET_ONCE_BOOL_OPTION(wmr_controller_task_restart, "WMR_CONTROLLER_TASK_RESTART", false)
+ 
+ 
+@@ -275,6 +276,9 @@ wmr_controller_send_fw_cmd(struct wmr_controller_base *wcb,
+ 	int64_t timeout_start = os_monotonic_get_ns();
+ 	int64_t timeout_end_ns = timeout_start + timeout_ns;
+ 
++	WMR_INFO(wcb, "Sending WMR controller fw command prefix=0x%02x cmd=0x%02x block=0x%02x addr=0x%08x",
++	         fw_cmd->cmd.prefix, fw_cmd->cmd.cmd_id, fw_cmd->cmd.block_id, __le32_to_cpu(fw_cmd->cmd.addr));
++
+ 	if (!wmr_controller_send_bytes(wcb, fw_cmd->buf, sizeof(fw_cmd->buf))) {
+ 		return -1;
+ 	}
+@@ -300,6 +304,10 @@ wmr_controller_send_fw_cmd(struct wmr_controller_base *wcb,
+ 			}
+ 
+ 			response->response.blk_remain = __le32_to_cpu(response->response.blk_remain);
++			WMR_INFO(wcb,
++			         "WMR controller fw response prefix=0x%02x cmd_echo=0x%02x block_echo=0x%02x remain=%u len=%u",
++			         response->response.prefix, response->response.cmd_id_echo,
++			         response->response.block_id_echo, response->response.blk_remain, response->response.len);
+ 			return size;
+ 		}
+ 	} while (os_monotonic_get_ns() < timeout_end_ns);
+@@ -799,10 +807,15 @@ wmr_controller_base_init(struct wmr_controller_base *wcb,
+ 	};
+ 	struct wmr_controller_fw_cmd_response fw_cmd_response;
+ 
+-	/* Zero command. Reinits controller internal state */
+-	fw_cmd = WMR_CONTROLLER_FW_CMD_INIT(0x06, 0x0, 0, 0);
+-	if (wmr_controller_send_fw_cmd(wcb, &fw_cmd, 0x06, &fw_cmd_response) < 0) {
+-		return false;
++	/* Zero command. Reinits controller internal state. */
++	if (debug_get_bool_option_wmr_controller_zero_command()) {
++		WMR_INFO(wcb, "Sending WMR controller zero/reinit command");
++		fw_cmd = WMR_CONTROLLER_FW_CMD_INIT(0x06, 0x0, 0, 0);
++		if (wmr_controller_send_fw_cmd(wcb, &fw_cmd, 0x06, &fw_cmd_response) < 0) {
++			return false;
++		}
++	} else {
++		WMR_INFO(wcb, "Skipping WMR controller zero/reinit command");
+ 	}
+ 
+ 	/* Quiesce/restart controller tasks */

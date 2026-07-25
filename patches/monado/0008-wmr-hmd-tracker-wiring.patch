@@ -1,0 +1,33 @@
+diff --git a/src/xrt/drivers/wmr/wmr_hmd.c b/src/xrt/drivers/wmr/wmr_hmd.c
+index 0e7da4619..21a43bf60 100644
+--- a/src/xrt/drivers/wmr/wmr_hmd.c
++++ b/src/xrt/drivers/wmr/wmr_hmd.c
+@@ -1698,6 +1698,7 @@ wmr_hmd_setup_trackers(struct wmr_hmd *wh, struct xrt_slam_sinks *out_sinks, str
+ 
+ 	wh->tracking.slam_enabled = slam_enabled;
+ 	wh->tracking.hand_enabled = hand_enabled;
++	wh->tracking.controller_tracking_enabled = false;
+ 	wh->tracking.imu2me = true;
+ 
+ 	wh->slam_over_3dof = slam_enabled; // We prefer SLAM over 3dof tracking if possible
+@@ -1747,6 +1748,9 @@ wmr_hmd_setup_trackers(struct wmr_hmd *wh, struct xrt_slam_sinks *out_sinks, str
+ 
+ 	t_stereo_camera_calibration_reference(&stereo_calib, NULL);
+ 
++	struct xrt_slam_sinks controller_sinks = {0};
++	(void)wmr_hmd_setup_controller_tracking(wh, &controller_sinks);
++
+ 	// Setup sinks depending on tracking configuration
+ 	struct xrt_slam_sinks entry_sinks = {0};
+ 	if (slam_enabled && hand_enabled) {
+@@ -2000,6 +2004,10 @@ wmr_hmd_create(enum wmr_headset_type hmd_type,
+ 		return;
+ 	}
+ 
++	if (wh->tracking.controller_tracking_enabled) {
++		wmr_source_set_controller_sinks(wh->tracking.source, &wh->tracking.controller_sinks);
++	}
++
+ 	// Stream data source into sinks (if populated)
+ 	bool stream_started = xrt_fs_slam_stream_start(wh->tracking.source, &sinks);
+ 	if (!stream_started) {

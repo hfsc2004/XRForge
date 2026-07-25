@@ -1,0 +1,79 @@
+diff --git a/src/xrt/drivers/wmr/wmr_camera.c b/src/xrt/drivers/wmr/wmr_camera.c
+index 9fd007a9c..a5541f54a 100644
+--- a/src/xrt/drivers/wmr/wmr_camera.c
++++ b/src/xrt/drivers/wmr/wmr_camera.c
+@@ -37,6 +37,9 @@ DEBUG_GET_ONCE_BOOL_OPTION(wmr_autoexposure, "WMR_AUTOEXPOSURE", true)
+ //! Specifies whether the user wants to use the same exp/gain values for all cameras
+ DEBUG_GET_ONCE_BOOL_OPTION(wmr_unify_expgain, "WMR_UNIFY_EXPGAIN", false)
+ 
++//! Also feed regular SLAM camera frames to WMR controller optical tracking.
++DEBUG_GET_ONCE_BOOL_OPTION(wmr_controller_use_slam_frames, "WMR_CONTROLLER_USE_SLAM_FRAMES", true)
++
+ static int
+ update_expgain(struct wmr_camera *cam, struct xrt_frame **frames);
+ 
+@@ -125,6 +128,7 @@ struct wmr_camera
+ 	struct u_sink_debug debug_sinks[2];
+ 
+ 	struct xrt_frame_sink *cam_sinks[WMR_MAX_CAMERAS]; //!< Downstream sinks to push tracking frames to
++	struct xrt_frame_sink *controller_cam_sinks[WMR_MAX_CAMERAS]; //!< Downstream sinks for controller frames
+ 
+ 	enum u_logging_level log_level;
+ };
+@@ -423,9 +427,34 @@ img_xfer_cb(struct libusb_transfer *xfer)
+ 			xrt_sink_push_frame(cam->cam_sinks[i], frames[i]);
+ 		}
+ 
++		if (debug_get_bool_option_wmr_controller_use_slam_frames()) {
++			for (int i = 0; i < cam->slam_cam_count; i++) {
++				if (cam->controller_cam_sinks[i] != NULL) {
++					xrt_sink_push_frame(cam->controller_cam_sinks[i], frames[i]);
++				}
++			}
++		}
++
+ 		for (int i = 0; i < cam->slam_cam_count; i++) {
+ 			xrt_frame_reference(&frames[i], NULL);
+ 		}
++	} else {
++		DRV_TRACE_IDENT(push_controller_to_sinks);
++
++		struct xrt_frame *frames[WMR_MAX_CAMERAS] = {NULL};
++		for (int i = 0; i < cam->tcam_count; i++) {
++			u_frame_create_roi(xf, cam->tcam_confs[i].roi, &frames[i]);
++		}
++
++		for (int i = 0; i < cam->tcam_count; i++) {
++			if (cam->controller_cam_sinks[i] != NULL) {
++				xrt_sink_push_frame(cam->controller_cam_sinks[i], frames[i]);
++			}
++		}
++
++		for (int i = 0; i < cam->tcam_count; i++) {
++			xrt_frame_reference(&frames[i], NULL);
++		}
+ 	}
+ 
+ drop_frame:
+@@ -458,6 +487,9 @@ wmr_camera_open(struct wmr_camera_open_config *config)
+ 	for (int i = 0; i < cam->tcam_count; i++) {
+ 		cam->tcam_confs[i] = *config->tcam_confs[i];
+ 		cam->cam_sinks[i] = config->tcam_sinks[i];
++		if (config->controller_tcam_sinks != NULL) {
++			cam->controller_cam_sinks[i] = config->controller_tcam_sinks[i];
++		}
+ 	}
+ 
+ 	if (os_thread_helper_init(&cam->usb_thread) != 0) {
+diff --git a/src/xrt/drivers/wmr/wmr_camera.h b/src/xrt/drivers/wmr/wmr_camera.h
+index 2c1865e01..aff5d0cd2 100644
+--- a/src/xrt/drivers/wmr/wmr_camera.h
++++ b/src/xrt/drivers/wmr/wmr_camera.h
+@@ -28,6 +28,7 @@ struct wmr_camera_open_config
+ 	struct xrt_prober_device *dev_holo;
+ 	struct wmr_camera_config **tcam_confs; //!< Pointers to tracking cameras. Will be copied.
+ 	struct xrt_frame_sink **tcam_sinks;    //!< Sinks for tracking cameras
++	struct xrt_frame_sink **controller_tcam_sinks; //!< Sinks for controller-tracking frames
+ 	int tcam_count;                        //!< Tracking camera count
+ 	int slam_cam_count;                    //!< Number of tracking cameras to use for SLAM
+ 	enum u_logging_level log_level;

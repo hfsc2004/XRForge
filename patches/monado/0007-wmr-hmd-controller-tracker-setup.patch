@@ -1,0 +1,272 @@
+diff --git a/src/xrt/drivers/wmr/wmr_hmd.c b/src/xrt/drivers/wmr/wmr_hmd.c
+index 0e7da4619..21a43bf60 100644
+--- a/src/xrt/drivers/wmr/wmr_hmd.c
++++ b/src/xrt/drivers/wmr/wmr_hmd.c
+@@ -43,14 +43,18 @@
+ #endif
+ 
+ #include "tracking/t_tracking.h"
++#include "constellation/t_constellation_tracker.h"
++#include "constellation/t_rift_blobwatch.h"
+ 
+ #include "wmr_hmd.h"
+ #include "wmr_common.h"
++#include "wmr_controller_base.h"
+ #include "wmr_config_key.h"
+ #include "wmr_protocol.h"
+ #include "wmr_source.h"
+ 
+ #include <stdio.h>
++#include <inttypes.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <assert.h>
+@@ -77,11 +81,43 @@ DEBUG_GET_ONCE_NUM_OPTION(sleep_seconds, "WMR_DISPLAY_INIT_SLEEP_SECONDS", 4)
+ //! Specifies whether the user wants to use the hand tracker.
+ DEBUG_GET_ONCE_BOOL_OPTION(wmr_handtracking, "WMR_HANDTRACKING", true)
+ 
++//! Specifies whether the user wants optical WMR controller tracking.
++DEBUG_GET_ONCE_BOOL_OPTION(wmr_controller_tracking, "WMR_CONTROLLER_TRACKING", true)
++DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_blob_pixel_threshold, "WMR_CONTROLLER_BLOB_PIXEL_THRESHOLD", 220)
++DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_blob_required_threshold, "WMR_CONTROLLER_BLOB_REQUIRED_THRESHOLD", 240)
++DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_blob_max_width, "WMR_CONTROLLER_BLOB_MAX_WIDTH", 12)
++DEBUG_GET_ONCE_BOOL_OPTION(wmr_controller_blob_allow_single_pixel, "WMR_CONTROLLER_BLOB_ALLOW_SINGLE_PIXEL", false)
++
+ #ifdef XRT_FEATURE_SLAM
+ //! Whether to submit samples to the SLAM tracker from the start.
+ DEBUG_GET_ONCE_OPTION(slam_submit_from_start, "SLAM_SUBMIT_FROM_START", NULL)
+ #endif
+ 
++static struct xrt_vec3 fallback_hmd_position = XRT_VEC3_ZERO;
++static bool fallback_hmd_position_valid = false;
++
++void
++wmr_fallback_update_hmd_position(const struct xrt_space_relation *relation)
++{
++	if ((relation->relation_flags & XRT_SPACE_RELATION_POSITION_VALID_BIT) == 0) {
++		return;
++	}
++
++	fallback_hmd_position = relation->pose.position;
++	fallback_hmd_position_valid = true;
++}
++
++bool
++wmr_fallback_get_hmd_position(struct xrt_vec3 *out_position)
++{
++	if (!fallback_hmd_position_valid) {
++		return false;
++	}
++
++	*out_position = fallback_hmd_position;
++	return true;
++}
++
+ //! Specifies the y offset of the views.
+ DEBUG_GET_ONCE_NUM_OPTION(left_view_y_offset, "WMR_LEFT_DISPLAY_VIEW_Y_OFFSET", 0)
+ DEBUG_GET_ONCE_NUM_OPTION(right_view_y_offset, "WMR_RIGHT_DISPLAY_VIEW_Y_OFFSET", 0)
+@@ -1190,6 +1226,7 @@ wmr_hmd_get_tracked_pose(struct xrt_device *xdev,
+ 
+ 	if (xret == XRT_SUCCESS) {
+ 		math_pose_transform(&wh->offset, &out_relation->pose, &out_relation->pose);
++		wmr_fallback_update_hmd_position(out_relation);
+ 	}
+ 
+ 	return xret;
+@@ -1278,6 +1315,196 @@ wmr_hmd_get_cam_calib(struct wmr_hmd *wh, int cam_index)
+ 	return res;
+ }
+ 
++static inline struct wmr_hmd *
++wmr_hmd_from_constellation_tracking_source(struct t_constellation_tracker_tracking_source *source)
++{
++	return container_of(source, struct wmr_hmd, tracking.controller_tracking_source);
++}
++
++static void
++wmr_hmd_constellation_get_tracked_pose(struct t_constellation_tracker_tracking_source *source,
++                                       int64_t when_ns,
++                                       struct xrt_space_relation *out_relation)
++{
++	struct wmr_hmd *wh = wmr_hmd_from_constellation_tracking_source(source);
++	wmr_hmd_get_tracked_pose(&wh->base, XRT_INPUT_GENERIC_HEAD_POSE, when_ns, out_relation);
++}
++
++static bool
++wmr_controller_led_visible(struct t_constellation_tracker_led_model *led_model,
++                           size_t led,
++                           struct xrt_vec3 T_obj_cam)
++{
++	(void)led_model;
++	(void)led;
++	(void)T_obj_cam;
++	return true;
++}
++
++static void
++wmr_controller_blob_debug_push(struct t_blob_sink *sink, struct t_blob_observation *observation)
++{
++	struct wmr_controller_blob_debug_sink *debug_sink =
++	    container_of(sink, struct wmr_controller_blob_debug_sink, base);
++
++	debug_sink->observation_count++;
++	if (debug_sink->observation_count == 1 || debug_sink->observation_count % 180 == 0 ||
++	    observation->num_blobs != debug_sink->last_blob_count) {
++		WMR_INFO(debug_sink->wh, "controller cam%u blobs #%" PRIu64 ": %u", debug_sink->camera_index,
++		         debug_sink->observation_count, observation->num_blobs);
++	}
++	debug_sink->last_blob_count = observation->num_blobs;
++
++	t_blob_sink_push_blobs(debug_sink->downstream, observation);
++}
++
++static void
++wmr_controller_blob_debug_destroy(struct t_blob_sink *sink)
++{
++	(void)sink;
++}
++
++static bool
++wmr_hmd_setup_controller_tracking(struct wmr_hmd *wh, struct xrt_slam_sinks *out_sinks)
++{
++	if (!debug_get_bool_option_wmr_controller_tracking()) {
++		return false;
++	}
++
++	if (wh->config.tcam_count <= 0) {
++		WMR_WARN(wh, "WMR controller tracking disabled: no tracking cameras");
++		return false;
++	}
++
++	wh->tracking.controller_tracking_source.get_tracked_pose = wmr_hmd_constellation_get_tracked_pose;
++
++	struct t_constellation_tracker_params tracker_params = {0};
++	tracker_params.num_mosaics = 1;
++	struct t_constellation_tracker_camera_mosaic *mosaic = &tracker_params.mosaics[0];
++	mosaic->tracking_origin = &wh->tracking.controller_tracking_source;
++	mosaic->num_cameras = (size_t)wh->config.tcam_count;
++
++	for (int i = 0; i < wh->config.tcam_count; i++) {
++		mosaic->cameras[i].calibration = wmr_hmd_get_cam_calib(wh, i);
++		mosaic->cameras[i].pose_in_origin = wh->config.tcams[i]->pose;
++		mosaic->cameras[i].has_concrete_pose = true;
++	}
++
++	int ret = t_constellation_tracker_create(&wh->tracking.xfctx, &tracker_params, &wh->tracking.controller_tracker);
++	if (ret != 0 || wh->tracking.controller_tracker == NULL) {
++		WMR_WARN(wh, "Unable to setup WMR controller constellation tracker");
++		return false;
++	}
++
++	struct xrt_slam_sinks controller_sinks = {0};
++	controller_sinks.cam_count = wh->config.tcam_count;
++
++	for (int i = 0; i < wh->config.tcam_count; i++) {
++		struct t_blob_sink *blob_sink = mosaic->cameras[i].blob_sink;
++		struct wmr_controller_blob_debug_sink *debug_sink = &wh->tracking.controller_blob_debug_sinks[i];
++		struct xrt_frame_sink *frame_sink = NULL;
++
++		debug_sink->base.push_blobs = wmr_controller_blob_debug_push;
++		debug_sink->base.destroy = wmr_controller_blob_debug_destroy;
++		debug_sink->downstream = blob_sink;
++		debug_sink->wh = wh;
++		debug_sink->camera_index = (uint32_t)i;
++		debug_sink->observation_count = 0;
++		debug_sink->last_blob_count = 0;
++		blob_sink = &debug_sink->base;
++
++		struct t_rift_blobwatch_params blobwatch_params = {
++		    .pixel_threshold = (uint8_t)debug_get_num_option_wmr_controller_blob_pixel_threshold(),
++		    .blob_required_threshold = (uint8_t)debug_get_num_option_wmr_controller_blob_required_threshold(),
++		    .max_match_dist = RIFT_BLOBWATCH_DEFAULT_MAX_MATCH_DIST,
++		    .max_blob_width = (uint16_t)debug_get_num_option_wmr_controller_blob_max_width(),
++		    .allow_single_pixel_blobs = debug_get_bool_option_wmr_controller_blob_allow_single_pixel(),
++		};
++
++		ret = t_rift_blobwatch_create(&blobwatch_params, &wh->tracking.xfctx, blob_sink, &frame_sink,
++		                              &wh->tracking.controller_blobwatches[i]);
++		if (ret != 0 || frame_sink == NULL) {
++			WMR_WARN(wh, "Unable to setup WMR controller blobwatch for camera %d", i);
++			return false;
++		}
++
++		u_sink_create_format_converter(&wh->tracking.xfctx, XRT_FORMAT_L8, frame_sink, &frame_sink);
++		if (!u_sink_simple_queue_create(&wh->tracking.xfctx, frame_sink, &frame_sink)) {
++			WMR_WARN(wh, "Unable to setup WMR controller blobwatch queue for camera %d", i);
++			return false;
++		}
++
++		controller_sinks.cams[i] = frame_sink;
++	}
++
++	wh->tracking.controller_tracking_enabled = true;
++	wh->base.tracking_origin = t_constellation_tracker_get_tracking_origin(wh->tracking.controller_tracker);
++	wh->tracking.controller_sinks = controller_sinks;
++	*out_sinks = controller_sinks;
++
++	WMR_INFO(wh, "WMR optical controller tracking initialized with %d cameras", wh->config.tcam_count);
++	return true;
++}
++
++bool
++wmr_hmd_register_controller_for_tracking(struct xrt_device *hmd_xdev, struct xrt_device *controller_xdev)
++{
++	struct wmr_hmd *wh = wmr_hmd(hmd_xdev);
++	struct wmr_controller_base *wcb = wmr_controller_base_from_xrt_device(controller_xdev);
++
++	if (wh == NULL || wcb == NULL || wh->tracking.controller_tracker == NULL) {
++		return false;
++	}
++
++	if (wcb->constellation_registered) {
++		return true;
++	}
++
++	if (wcb->config.led_count <= 0) {
++		WMR_WARN(wh, "Cannot register WMR controller for optical tracking: no LED calibration");
++		return false;
++	}
++
++	wcb->constellation_leds = U_TYPED_ARRAY_CALLOC(struct t_constellation_tracker_led, wcb->config.led_count);
++	if (wcb->constellation_leds == NULL) {
++		return false;
++	}
++
++	for (int i = 0; i < wcb->config.led_count; i++) {
++		wcb->constellation_leds[i].position = wcb->config.leds[i].pos;
++		wcb->constellation_leds[i].normal = wcb->config.leds[i].norm;
++		wcb->constellation_leds[i].radius_m = 0.004f;
++		wcb->constellation_leds[i].visibility_angle = 1.57079632679f;
++		wcb->constellation_leds[i].id = (t_constellation_led_id_it)i;
++	}
++
++	struct t_constellation_tracker_device_params params = {
++	    .led_model =
++	        {
++	            .leds = wcb->constellation_leds,
++	            .led_count = (size_t)wcb->config.led_count,
++	            .compute_led_visibility = wmr_controller_led_visible,
++	        },
++	    .tracking_source = &wcb->constellation_tracking_source,
++	};
++
++	int ret = t_constellation_tracker_add_device(wh->tracking.controller_tracker, &params, &wcb->constellation_device,
++	                                             &wcb->constellation_device_id);
++	if (ret != 0) {
++		WMR_WARN(wh, "Failed to register WMR controller for optical tracking");
++		free(wcb->constellation_leds);
++		wcb->constellation_leds = NULL;
++		return false;
++	}
++
++	wcb->constellation_registered = true;
++	wcb->base.tracking_origin = t_constellation_tracker_get_tracking_origin(wh->tracking.controller_tracker);
++	WMR_INFO(wh, "Registered %s with WMR optical controller tracker (%d LEDs)", wcb->base.str,
++	         wcb->config.led_count);
++
++	return true;
++}
++
+ XRT_MAYBE_UNUSED static struct xrt_vec2
+ wmr_hmd_camera_project(struct wmr_hmd *wh, struct xrt_vec3 p3d)
+ {
