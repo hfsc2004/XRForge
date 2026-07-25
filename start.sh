@@ -49,7 +49,10 @@ WMR_3DOF_ONLY=0
 X11_NON_DESKTOP_WATCH_SECONDS="${XRFORGE_X11_NON_DESKTOP_WATCH_SECONDS:-30}"
 XRFORGE_STEAMVR_CHAPERONE="${XRFORGE_STEAMVR_CHAPERONE:-true}"
 XRFORGE_STEAMVR_PLAY_AREA="${XRFORGE_STEAMVR_PLAY_AREA:-3.0}"
-XRFORGE_STEAMVR_STANDING_HEIGHT="${XRFORGE_STEAMVR_STANDING_HEIGHT:-0.0}"
+XRFORGE_STEAMVR_STANDING_X="${XRFORGE_STEAMVR_STANDING_X:-}"
+XRFORGE_STEAMVR_STANDING_Y="${XRFORGE_STEAMVR_STANDING_Y:-}"
+XRFORGE_STEAMVR_STANDING_Z="${XRFORGE_STEAMVR_STANDING_Z:-}"
+XRFORGE_STEAMVR_STANDING_YAW="${XRFORGE_STEAMVR_STANDING_YAW:-}"
 
 usage() {
   cat <<EOF
@@ -83,8 +86,9 @@ Environment:
                                 Write a centered SteamVR chaperone before launch;
                                 default true.
   XRFORGE_STEAMVR_PLAY_AREA     Centered play-area size in meters; default 3.0.
-  XRFORGE_STEAMVR_STANDING_HEIGHT
-                                Standing transform Y translation; default 0.0.
+  XRFORGE_STEAMVR_STANDING_X/Y/Z/YAW
+                                Standing transform override. By default XRForge
+                                preserves the existing SteamVR transform.
   WMR_CONTROLLER_FALLBACK_X/Y/Z Simulated controller offset from HMD position.
   WMR_CONTROLLER_FALLBACK_FOLLOW_HMD
                                 Keep fallback controllers attached to HMD position.
@@ -288,7 +292,6 @@ write_steamvr_chaperone() {
   local area="${XRFORGE_STEAMVR_PLAY_AREA}"
   local half
   half="$(awk -v area="${area}" 'BEGIN { printf "%.6f", area / 2.0 }')"
-  local height="${XRFORGE_STEAMVR_STANDING_HEIGHT}"
   local now
   now="$(date '+%a %b %d %H:%M:%S %Y')"
 
@@ -296,8 +299,64 @@ write_steamvr_chaperone() {
     cp "${STEAMVR_CHAPERONE_FILE}" "${STEAMVR_CHAPERONE_FILE}.xrforge-backup"
   fi
 
+  local source_chaperone="${STEAMVR_CHAPERONE_FILE}.xrforge-backup"
+  if [[ ! -f "${source_chaperone}" ]]; then
+    source_chaperone="${STEAMVR_CHAPERONE_FILE}"
+  fi
+
+  local standing_x="${XRFORGE_STEAMVR_STANDING_X}"
+  local standing_y="${XRFORGE_STEAMVR_STANDING_Y}"
+  local standing_z="${XRFORGE_STEAMVR_STANDING_Z}"
+  local standing_yaw="${XRFORGE_STEAMVR_STANDING_YAW}"
+
+  if [[ -f "${source_chaperone}" ]]; then
+    local parsed_transform
+    parsed_transform="$(awk '
+      /"standing"[[:space:]]*:/ { in_standing = 1 }
+      in_standing && /"translation"[[:space:]]*:/ {
+        line = $0
+        gsub(/[][,"\t]/, " ", line)
+        fields = split(line, parts, /[[:space:]]+/)
+        for (i = 1; i <= fields; i++) {
+          if (parts[i] ~ /^-?[0-9]+(\.[0-9]+)?$/) {
+            values[++count] = parts[i]
+          }
+        }
+      }
+      in_standing && /"yaw"[[:space:]]*:/ {
+        yaw = $0
+        gsub(/[][,"\t]/, " ", yaw)
+        fields = split(yaw, parts, /[[:space:]]+/)
+        for (i = 1; i <= fields; i++) {
+          if (parts[i] ~ /^-?[0-9]+(\.[0-9]+)?$/) {
+            values[++count] = parts[i]
+          }
+        }
+        if (count >= 4) {
+          printf "%s %s %s %s\n", values[1], values[2], values[3], values[4]
+        }
+        exit
+      }
+    ' "${source_chaperone}")"
+
+    if [[ -n "${parsed_transform}" ]]; then
+      read -r parsed_x parsed_y parsed_z parsed_yaw <<<"${parsed_transform}"
+      standing_x="${standing_x:-${parsed_x}}"
+      standing_y="${standing_y:-${parsed_y}}"
+      standing_z="${standing_z:-${parsed_z}}"
+      standing_yaw="${standing_yaw:-${parsed_yaw}}"
+    fi
+  fi
+
+  standing_x="${standing_x:-0}"
+  standing_y="${standing_y:--0.77}"
+  standing_z="${standing_z:-0}"
+  standing_yaw="${standing_yaw:-0}"
+
   log "SteamVR chaperone"
   printf 'Writing centered %.1fm x %.1fm play area to %s\n' "${area}" "${area}" "${STEAMVR_CHAPERONE_FILE}"
+  printf 'SteamVR standing transform: translation=[%s, %s, %s] yaw=%s\n' \
+    "${standing_x}" "${standing_y}" "${standing_z}" "${standing_yaw}"
 
   cat >"${STEAMVR_CHAPERONE_FILE}" <<EOF
 {
@@ -332,12 +391,12 @@ write_steamvr_chaperone() {
          ],
          "play_area" : [ ${area}, ${area} ],
          "setup_standing2" : {
-            "translation" : [ 0, ${height}, 0 ],
-            "yaw" : 0
+            "translation" : [ ${standing_x}, ${standing_y}, ${standing_z} ],
+            "yaw" : ${standing_yaw}
          },
          "standing" : {
-            "translation" : [ 0, ${height}, 0 ],
-            "yaw" : 0
+            "translation" : [ ${standing_x}, ${standing_y}, ${standing_z} ],
+            "yaw" : ${standing_yaw}
          },
          "time" : "${now}",
          "universeID" : "2"
