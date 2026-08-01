@@ -1,0 +1,32 @@
+diff --git a/src/xrt/targets/steamvr_drv/main.c b/src/xrt/targets/steamvr_drv/main.c
+index 7fd09c0b6..7d182d9c7 100644
+--- a/src/xrt/targets/steamvr_drv/main.c
++++ b/src/xrt/targets/steamvr_drv/main.c
+@@ -9,8 +9,11 @@
+  */
+ 
+ #include "ovrd_interface.h"
++#include "util/u_logging.h"
+ #include "xrt/xrt_config_os.h"
+ 
++#include <stdlib.h>
++
+ #if defined(XRT_OS_WINDOWS)
+ #define HMD_DLL_EXPORT __declspec(dllexport)
+ #define HMD_DLL_IMPORT __declspec(dllimport)
+@@ -25,5 +28,15 @@
+ HMD_DLL_EXPORT void *
+ HmdDriverFactory(const char *pInterfaceName, int *pReturnCode)
+ {
++	/*
++	 * SteamVR starts this driver inside vrserver, so driver stderr is not
++	 * reachable from the launcher shell. Send log output to a file instead
++	 * when XRT_LOG_FILE is set.
++	 */
++	const char *log_file = getenv("XRT_LOG_FILE");
++	if (log_file != NULL && log_file[0] != '\0') {
++		u_log_set_output_file(log_file);
++	}
++
+ 	return ovrd_hmd_driver_impl(pInterfaceName, pReturnCode);
+ }

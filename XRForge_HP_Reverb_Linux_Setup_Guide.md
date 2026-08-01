@@ -1,6 +1,6 @@
 # XRForge - HP Reverb Linux Setup Guide
 
-XRForge version: `0.2.1`
+XRForge version: `0.2.2`
 
 ## Purpose
 
@@ -440,8 +440,21 @@ HP Reverb controller testing:
 ``` bash
 WMR_CONTROLLER_ZERO_COMMAND=false \
 WMR_CONTROLLER_TASK_RESTART=false \
-WMR_CONTROLLER_ENABLE_REPORT_COMMANDS=false ./start.sh
+WMR_CONTROLLER_ENABLE_REPORT_COMMANDS=false \
+WMR_CONTROLLER_ENABLE_STATUS_COMMAND=true \
+WMR_CONTROLLER_ENABLE_IMU_COMMAND=true ./start.sh
 ```
+
+The split status/IMU switches remain available for isolation testing, but both
+default on. The status command carries button and trigger input; the IMU command
+feeds the orientation fusion and the fallback pose, and disabling it leaves
+controller poses frozen in space. An earlier hypothesis blamed the IMU command
+for LED ring shutdowns; testing did not support that.
+
+Monado driver logs are written to `xrforge-monado.log` in the project root via
+`XRT_LOG_FILE`, because SteamVR runs the driver inside `vrserver` where driver
+output cannot be piped from the launcher shell. Set `WMR_LOG=debug` for more
+detail. The log is truncated on each run.
 
 SteamVR chaperone/play-area defaults:
 
@@ -466,7 +479,7 @@ WMR_CONTROLLER_MIN_MATCHED_BLOBS=4
 WMR_CONTROLLER_MAX_REPROJECTION_ERROR=35
 WMR_CONTROLLER_MAX_POSITION_JUMP=0.18
 WMR_CONTROLLER_OPTICAL_POSITION_ALPHA=0.25
-WMR_CONTROLLER_REACQUIRE_AFTER_REJECTS=8
+WMR_CONTROLLER_REACQUIRE_AFTER_REJECTS=0
 ```
 
 Raw controller camera frame dumps:

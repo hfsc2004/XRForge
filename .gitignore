@@ -1,4 +1,5 @@
 Envision-x86_64.AppImage
 .xrforge-headset-output
 xrandr-headset.txt
-xrforge-wmr-controller*
+xrforge-wmr-*
+xrforge-monado.log

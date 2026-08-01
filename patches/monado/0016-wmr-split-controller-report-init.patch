@@ -1,0 +1,46 @@
+diff --git a/src/xrt/drivers/wmr/wmr_controller_base.c b/src/xrt/drivers/wmr/wmr_controller_base.c
+index 9eb74235d..8ce368a47 100644
+--- a/src/xrt/drivers/wmr/wmr_controller_base.c
++++ b/src/xrt/drivers/wmr/wmr_controller_base.c
+@@ -61,10 +61,12 @@ DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_min_matched_blobs, "WMR_CONTROLLER_MIN_
+ DEBUG_GET_ONCE_FLOAT_OPTION(wmr_controller_max_reprojection_error, "WMR_CONTROLLER_MAX_REPROJECTION_ERROR", 35.0f)
+ DEBUG_GET_ONCE_FLOAT_OPTION(wmr_controller_max_position_jump, "WMR_CONTROLLER_MAX_POSITION_JUMP", 0.18f)
+ DEBUG_GET_ONCE_FLOAT_OPTION(wmr_controller_optical_position_alpha, "WMR_CONTROLLER_OPTICAL_POSITION_ALPHA", 0.25f)
+-DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_reacquire_after_rejects, "WMR_CONTROLLER_REACQUIRE_AFTER_REJECTS", 8)
++DEBUG_GET_ONCE_NUM_OPTION(wmr_controller_reacquire_after_rejects, "WMR_CONTROLLER_REACQUIRE_AFTER_REJECTS", 0)
+ DEBUG_GET_ONCE_BOOL_OPTION(wmr_controller_zero_command, "WMR_CONTROLLER_ZERO_COMMAND", false)
+ DEBUG_GET_ONCE_BOOL_OPTION(wmr_controller_task_restart, "WMR_CONTROLLER_TASK_RESTART", false)
+ DEBUG_GET_ONCE_BOOL_OPTION(wmr_controller_enable_report_commands, "WMR_CONTROLLER_ENABLE_REPORT_COMMANDS", false)
++DEBUG_GET_ONCE_BOOL_OPTION(wmr_controller_enable_status_command, "WMR_CONTROLLER_ENABLE_STATUS_COMMAND", true)
++DEBUG_GET_ONCE_BOOL_OPTION(wmr_controller_enable_imu_command, "WMR_CONTROLLER_ENABLE_IMU_COMMAND", true)
+ 
+ static float
+ wmr_controller_get_aim_yaw_degrees(struct xrt_device *xdev)
+@@ -853,15 +855,23 @@ wmr_controller_base_init(struct wmr_controller_base *wcb,
+ 
+ 	wmr_config_precompute_transforms(&wcb->config.sensors, NULL);
+ 
+-	/* Enable the status reports, IMU and control status reports */
+-	if (debug_get_bool_option_wmr_controller_enable_report_commands()) {
+-		WMR_INFO(wcb, "Sending WMR controller status/IMU report enable commands");
++	/* Enable reports without sending the LED-sensitive IMU command by default. */
++	if (debug_get_bool_option_wmr_controller_enable_report_commands() ||
++	    debug_get_bool_option_wmr_controller_enable_status_command()) {
++		WMR_INFO(wcb, "Sending WMR controller status report enable command");
+ 		const unsigned char wmr_controller_status_enable_cmd[64] = {0x06, 0x03, 0x01, 0x00, 0x02};
+ 		wmr_controller_send_bytes(wcb, wmr_controller_status_enable_cmd, sizeof(wmr_controller_status_enable_cmd));
++	} else {
++		WMR_INFO(wcb, "Skipping WMR controller status report enable command");
++	}
++
++	if (debug_get_bool_option_wmr_controller_enable_report_commands() ||
++	    debug_get_bool_option_wmr_controller_enable_imu_command()) {
++		WMR_INFO(wcb, "Sending WMR controller IMU report enable command");
+ 		const unsigned char wmr_controller_imu_on_cmd[64] = {0x06, 0x03, 0x02, 0xe1, 0x02};
+ 		wmr_controller_send_bytes(wcb, wmr_controller_imu_on_cmd, sizeof(wmr_controller_imu_on_cmd));
+ 	} else {
+-		WMR_INFO(wcb, "Skipping WMR controller status/IMU report enable commands");
++		WMR_INFO(wcb, "Skipping WMR controller IMU report enable command");
+ 	}
+ 
+ 	return true;

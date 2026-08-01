@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-XRFORGE_VERSION="${XRFORGE_VERSION:-0.2.1}"
+XRFORGE_VERSION="${XRFORGE_VERSION:-0.2.2}"
 MONADO_DIR="${ROOT_DIR}/monado-source"
 BUILD_DIR="${MONADO_DIR}/build-steamvr-minimal"
 OPENXR_JSON="${BUILD_DIR}/openxr_monado-dev.json"
@@ -9,6 +9,9 @@ STEAMVR_DRIVER_SO="${STEAMVR_DRIVER_DIR}/bin/linux64/driver_monado.so"
 STEAMVR_DIR="${HOME}/.local/share/Steam/steamapps/common/SteamVR"
 STEAMVR_CONFIG_DIR="${HOME}/.local/share/Steam/config"
 STEAMVR_CHAPERONE_FILE="${STEAMVR_CONFIG_DIR}/chaperone_info.vrchap"
+
+XRT_LOG_FILE="${XRT_LOG_FILE:-${ROOT_DIR}/xrforge-monado.log}"
+WMR_LOG="${WMR_LOG:-info}"
 
 LEFT_CONTROLLER_MAC="${XRFORGE_LEFT_CONTROLLER_MAC:-D8:C4:97:C9:12:38}"
 RIGHT_CONTROLLER_MAC="${XRFORGE_RIGHT_CONTROLLER_MAC:-D8:C4:97:C9:18:94}"
@@ -32,11 +35,13 @@ WMR_CONTROLLER_MAX_BRIGHT_PIXELS="${WMR_CONTROLLER_MAX_BRIGHT_PIXELS:-0}"
 WMR_CONTROLLER_ZERO_COMMAND="${WMR_CONTROLLER_ZERO_COMMAND:-false}"
 WMR_CONTROLLER_TASK_RESTART="${WMR_CONTROLLER_TASK_RESTART:-false}"
 WMR_CONTROLLER_ENABLE_REPORT_COMMANDS="${WMR_CONTROLLER_ENABLE_REPORT_COMMANDS:-false}"
+WMR_CONTROLLER_ENABLE_STATUS_COMMAND="${WMR_CONTROLLER_ENABLE_STATUS_COMMAND:-true}"
+WMR_CONTROLLER_ENABLE_IMU_COMMAND="${WMR_CONTROLLER_ENABLE_IMU_COMMAND:-true}"
 WMR_CONTROLLER_MIN_MATCHED_BLOBS="${WMR_CONTROLLER_MIN_MATCHED_BLOBS:-4}"
 WMR_CONTROLLER_MAX_REPROJECTION_ERROR="${WMR_CONTROLLER_MAX_REPROJECTION_ERROR:-35}"
 WMR_CONTROLLER_MAX_POSITION_JUMP="${WMR_CONTROLLER_MAX_POSITION_JUMP:-0.18}"
 WMR_CONTROLLER_OPTICAL_POSITION_ALPHA="${WMR_CONTROLLER_OPTICAL_POSITION_ALPHA:-0.25}"
-WMR_CONTROLLER_REACQUIRE_AFTER_REJECTS="${WMR_CONTROLLER_REACQUIRE_AFTER_REJECTS:-8}"
+WMR_CONTROLLER_REACQUIRE_AFTER_REJECTS="${WMR_CONTROLLER_REACQUIRE_AFTER_REJECTS:-0}"
 WMR_CONTROLLER_DUMP_FRAMES="${WMR_CONTROLLER_DUMP_FRAMES:-0}"
 WMR_CONTROLLER_DUMP_SKIP_FRAMES="${WMR_CONTROLLER_DUMP_SKIP_FRAMES:-300}"
 WMR_CONTROLLER_DUMP_INTERVAL="${WMR_CONTROLLER_DUMP_INTERVAL:-180}"
@@ -125,10 +130,20 @@ Environment:
   WMR_CONTROLLER_MIN/MAX_BRIGHT_PIXELS
   WMR_CONTROLLER_MAX_BRIGHT_FRACTION
                                 Optical-controller frame gates.
+  XRT_LOG_FILE                  Monado driver log file; default xrforge-monado.log
+                                in the project root. SteamVR runs the driver
+                                inside vrserver, so driver output cannot be piped
+                                from this shell.
+  WMR_LOG                       WMR driver log level (trace/debug/info/warn/error);
+                                default info.
   WMR_CONTROLLER_TASK_RESTART   Send controller task restart init command; default false.
   WMR_CONTROLLER_ZERO_COMMAND   Send controller zero/reinit init command; default false.
   WMR_CONTROLLER_ENABLE_REPORT_COMMANDS
-                                Send startup status/IMU report enable commands; default false.
+                                Send both startup report enable commands; default false.
+  WMR_CONTROLLER_ENABLE_STATUS_COMMAND
+                                Send startup status/input report command; default true.
+  WMR_CONTROLLER_ENABLE_IMU_COMMAND
+                                Send startup IMU report command; default true.
   WMR_CONTROLLER_MIN_MATCHED_BLOBS
   WMR_CONTROLLER_MAX_REPROJECTION_ERROR
   WMR_CONTROLLER_MAX_POSITION_JUMP
@@ -155,6 +170,8 @@ export_runtime_environment() {
   export WMR_CONTROLLER_MIN_BRIGHT_PIXELS WMR_CONTROLLER_MAX_BRIGHT_PIXELS
   export WMR_CONTROLLER_ZERO_COMMAND WMR_CONTROLLER_TASK_RESTART
   export WMR_CONTROLLER_ENABLE_REPORT_COMMANDS
+  export WMR_CONTROLLER_ENABLE_STATUS_COMMAND WMR_CONTROLLER_ENABLE_IMU_COMMAND
+  export XRT_LOG_FILE WMR_LOG
   export WMR_CONTROLLER_MIN_MATCHED_BLOBS WMR_CONTROLLER_MAX_REPROJECTION_ERROR
   export WMR_CONTROLLER_MAX_POSITION_JUMP WMR_CONTROLLER_OPTICAL_POSITION_ALPHA
   export WMR_CONTROLLER_REACQUIRE_AFTER_REJECTS
@@ -171,9 +188,12 @@ print_runtime_summary() {
     "${WMR_CONTROLLER_FALLBACK_X}" "${WMR_CONTROLLER_FALLBACK_Y}" "${WMR_CONTROLLER_FALLBACK_Z}"
   printf 'WMR controller aim yaw: left=%s right=%s\n' \
     "${WMR_CONTROLLER_AIM_YAW_DEGREES_LEFT}" "${WMR_CONTROLLER_AIM_YAW_DEGREES_RIGHT}"
-  printf 'WMR controller init writes: zero=%s task_restart=%s report_enable=%s\n' \
-    "${WMR_CONTROLLER_ZERO_COMMAND}" "${WMR_CONTROLLER_TASK_RESTART}" "${WMR_CONTROLLER_ENABLE_REPORT_COMMANDS}"
+  printf 'WMR controller init writes: zero=%s task_restart=%s report_enable=%s status=%s imu=%s\n' \
+    "${WMR_CONTROLLER_ZERO_COMMAND}" "${WMR_CONTROLLER_TASK_RESTART}" \
+    "${WMR_CONTROLLER_ENABLE_REPORT_COMMANDS}" "${WMR_CONTROLLER_ENABLE_STATUS_COMMAND}" \
+    "${WMR_CONTROLLER_ENABLE_IMU_COMMAND}"
   printf 'SteamVR controller emulation: index=%s\n' "${STEAMVR_EMULATE_INDEX_CONTROLLER}"
+  printf 'Monado driver log: %s (WMR_LOG=%s)\n' "${XRT_LOG_FILE}" "${WMR_LOG}"
   if [[ "${WMR_CONTROLLER_DUMP_FRAMES}" != "0" ]]; then
     printf 'WMR controller camera frame dumps: %s frames per camera to /tmp after skip=%s interval=%s\n' \
       "${WMR_CONTROLLER_DUMP_FRAMES}" "${WMR_CONTROLLER_DUMP_SKIP_FRAMES}" "${WMR_CONTROLLER_DUMP_INTERVAL}"
