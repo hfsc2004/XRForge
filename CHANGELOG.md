@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.2
+
+- Split WMR controller report startup writes into separate status/input and IMU commands.
+- Defaulted both `WMR_CONTROLLER_ENABLE_STATUS_COMMAND=true` and `WMR_CONTROLLER_ENABLE_IMU_COMMAND=true`. Gating the IMU startup command off left controller poses frozen in space, so the earlier LED-ring hypothesis for that command does not hold.
+- Defaulted `WMR_CONTROLLER_REACQUIRE_AFTER_REJECTS=0` to stop bad optical solves from periodically teleporting controllers during tracking debug.
+- Added `XRT_LOG_FILE` support to the SteamVR driver entry point so Monado driver logs survive the Steam launch handoff, and defaulted the launcher to write `xrforge-monado.log`.
+- Updated WMR controller troubleshooting docs for the new startup command split.
+
 ## 0.2.1
 
 - Added WMR controller optical frame gating to skip dark/no-signal frames and flooded frames before blob tracking.
@@ -7,6 +15,7 @@
 - Disabled hard bright-pixel count gating by default after testing showed it could make startup re-acquisition worse.
 - Added optical re-acquisition after repeated valid-looking position-jump rejects.
 - Defaulted the WMR controller zero/reinit startup command off to avoid dropping controller LED rings during SteamVR startup.
+- Defaulted remaining WMR controller startup report-enable commands off while isolating LED ring shutdowns.
 - Added explicit WMR controller firmware command/response logging for LED power-state debugging.
 - Added XRForge-managed centered SteamVR chaperone generation before launch for room-scale app startup.
 - Preserved the existing SteamVR standing transform when generating a larger XRForge play area.

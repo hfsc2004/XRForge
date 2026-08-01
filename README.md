@@ -4,7 +4,7 @@
 
 # XRForge
 
-Current version: `0.2.1`
+Current version: `0.2.2`
 
 XRForge is an open-source XR hardware compatibility project focused on bringing
 VR, AR, and MR headsets and controllers to Linux through open standards such as
@@ -284,14 +284,33 @@ WMR_CONTROLLER_MAX_BRIGHT_PIXELS=0 \
 ./start.sh
 ```
 
-If a controller LED ring turns off when the driver initializes, test startup
-without controller reinit commands. XRForge now defaults both off for HP Reverb
-controller testing:
+If a controller LED ring turns off when the driver initializes, test the startup
+write switches separately. XRForge defaults the zero/restart commands off and
+keeps both report enable commands on:
 
 ```bash
 WMR_CONTROLLER_ZERO_COMMAND=false \
-WMR_CONTROLLER_TASK_RESTART=false ./start.sh
+WMR_CONTROLLER_TASK_RESTART=false \
+WMR_CONTROLLER_ENABLE_REPORT_COMMANDS=false \
+WMR_CONTROLLER_ENABLE_STATUS_COMMAND=true \
+WMR_CONTROLLER_ENABLE_IMU_COMMAND=true ./start.sh
 ```
+
+The IMU startup command is required. Disabling it leaves controller poses frozen
+in space, because the IMU feeds the orientation fusion and the fallback pose.
+An earlier hypothesis blamed this command for controller LED ring shutdowns;
+testing did not support that, so it is enabled by default.
+
+To read Monado driver logs, note that SteamVR runs the driver inside `vrserver`,
+so driver output cannot be piped from the launcher shell. XRForge sets
+`XRT_LOG_FILE` so the driver writes `xrforge-monado.log` in the project root:
+
+```bash
+WMR_LOG=debug ./start.sh
+grep -o "max=[0-9]* above_pixel=[0-9]*" xrforge-monado.log | head
+```
+
+The log is truncated on each run; copy it before relaunching to compare runs.
 
 XRForge writes a centered SteamVR chaperone before launch so room-scale apps do
 not inherit an old or tiny play area from a previous SteamVR Room Setup run. The
@@ -317,7 +336,7 @@ WMR_CONTROLLER_MIN_MATCHED_BLOBS=4
 WMR_CONTROLLER_MAX_REPROJECTION_ERROR=35
 WMR_CONTROLLER_MAX_POSITION_JUMP=0.18
 WMR_CONTROLLER_OPTICAL_POSITION_ALPHA=0.25
-WMR_CONTROLLER_REACQUIRE_AFTER_REJECTS=8
+WMR_CONTROLLER_REACQUIRE_AFTER_REJECTS=0
 ```
 
 To capture the raw controller camera images that are feeding the blob detector:
